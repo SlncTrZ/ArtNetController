@@ -73,7 +73,7 @@ echo    Generate at: https://github.com/settings/tokens
 echo.
 pause
 
-git push -u origin main
+git push -u origin master
 
 if errorlevel 1 (
     echo.
