@@ -1,0 +1,106 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ===================================
+# 🔐 CRITICAL: LICENSE SECURITY
+# ===================================
+# NEVER commit these files!
+
+# Private RSA Key (KEEP SECRET!)
+tools/rsa_keys/private_key.pem
+tools/rsa_keys/*.pem
+!tools/rsa_keys/public_key_constant.py
+
+# Generated Licenses (customer data)
+tools/generated_licenses/
+generated_licenses/
+*.json
+
+# License Files (user installations)
+config/license.lic
+config/license.dat
+config/revocation_cache.json
+config/install_date.txt
+
+# Cython Build Artifacts
+build/
+*.c
+*.pyd
+*.so
+*.dll
+
+# Backup Files
+*.py.original
+*.py.backup
+
+# Server Data
+server/revoked_licenses.json
+server/licenses.json
+
+# Backup Keys
+*.pem
+*.key
+*.priv
+*.cer
+*.crt
+
+# ===================================
+# Application Data
+# ===================================
+# Config files
+config/*.json
+config/*.dat
+config/*.txt
+!config/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Show files
+shows/
+*.dmx
+*.show
+
+# Database
+*.db
+*.sqlite
+
+# Temp files
+*.tmp
+temp/

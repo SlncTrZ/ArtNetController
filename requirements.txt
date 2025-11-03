@@ -1,0 +1,66 @@
+# Art-Net Controller Requirements
+
+# ===================================
+# Core GUI Framework
+# ===================================
+PyQt6>=6.5.0
+PyQt6-Qt6>=6.5.0
+
+# ===================================
+# License System (CRITICAL!)
+# ===================================
+cryptography>=41.0.0    # RSA signatures + AES-256-GCM encryption
+Cython>=3.0.0           # Compile license.py to binary (.pyd/.so)
+
+# ===================================
+# Networking and Communication
+# ===================================
+requests>=2.31.0
+# netifaces>=0.11.0  # Optional: requires Visual C++ Build Tools on Windows
+
+# ===================================
+# Web Server for MP3 Upload
+# ===================================
+Flask>=2.3.0
+Flask-CORS>=4.0.0
+Werkzeug>=2.3.0
+
+# ===================================
+# Audio Processing
+# ===================================
+mutagen>=1.47.0
+pydub>=0.25.1
+
+# ===================================
+# Data Processing and Storage
+# ===================================
+lxml>=4.9.0
+xmltodict>=0.13.0
+
+# ===================================
+# System and Hardware
+# ===================================
+psutil>=5.9.0
+platform-system>=1.0.0
+numpy>=1.24.0           # Required for Cython compilation
+
+# ===================================
+# Development and Testing
+# ===================================
+pytest>=7.4.0
+pytest-qt>=4.2.0
+
+# ===================================
+# Optional: Distribution
+# ===================================
+# pyinstaller>=5.13.0   # Create standalone executable
+
+# ===================================
+# Optional: For Raspberry Pi GPIO (install only on Pi)
+# ===================================
+# RPi.GPIO>=0.7.1
+
+# ===================================
+# Optional: For better audio support on Linux
+# ===================================
+# python-alsa>=1.2.0
