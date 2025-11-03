@@ -1,0 +1,58 @@
+========================================
+DMX MASTER INSTALLATION
+========================================
+
+Thank you for choosing DMX Master!
+
+BEFORE YOU INSTALL:
+-------------------
+
+1. SYSTEM REQUIREMENTS
+   - Windows 10/11 (64-bit)
+   - Minimum 4GB RAM
+   - 100MB free disk space
+   - Network adapter (for Art-Net)
+
+2. NETWORK CONFIGURATION
+   DMX Master uses these ports:
+   - UDP 6454: Art-Net protocol
+   - TCP 8080: Web interface
+   
+   Please ensure Windows Firewall allows these ports.
+
+3. WHAT WILL BE INSTALLED
+   - DMX Master application
+   - Example show files
+   - Configuration templates
+   - User documentation
+
+4. USER DATA PRESERVATION
+   During updates, these folders are PRESERVED:
+   - data\shows\ (your show files)
+   - data\audio\ (your music files)
+   - config\ (your settings)
+   
+   Your work is always safe during upgrades!
+
+5. LICENSE ACTIVATION
+   - 7 days FREE trial (all features)
+   - Purchase license for continued use
+   - Offline activation supported
+   - License tied to this computer
+
+6. INSTALLATION LOCATION
+   You can choose any drive (C:\, D:\, E:\, etc.)
+   Default: C:\Program Files\DMX Master\
+
+7. UNINSTALLATION
+   You can uninstall via:
+   - Control Panel > Programs and Features
+   - Start Menu > DMX Master > Uninstall
+   
+   Option to keep your data files is provided.
+
+========================================
+
+Click NEXT to continue installation.
+
+For support: truongcongdinh97tcd@gmail.com

@@ -102,7 +102,15 @@ class ArtNetDMX(ArtNetPacket):
         if len(payload) < 6:
             return None
             
-        sequence, physical, universe, length = struct.unpack('<BBHH', payload[:6])
+        # Art-Net DMX packet format:
+        # Byte 0: Sequence
+        # Byte 1: Physical
+        # Byte 2-3: Universe (Little Endian)
+        # Byte 4-5: Length (Big Endian) - số bytes DMX data
+        sequence = payload[0]
+        physical = payload[1]
+        universe = struct.unpack('<H', payload[2:4])[0]
+        length = struct.unpack('>H', payload[4:6])[0]  # Big Endian!
         dmx_data = payload[6:6+length]
         
         return {
@@ -135,6 +143,9 @@ class ArtNetController:
         # Universe mapping: {ip_address: {port_number: universe}}
         self.universe_mapping: Dict[str, Dict[int, int]] = {}
         
+        # Auto-forward control
+        self.auto_forward_enabled = False  # Checkbox control
+        
         # Thread locks
         self.nodes_lock = threading.Lock()
         self.dmx_lock = threading.Lock()
@@ -150,6 +161,10 @@ class ArtNetController:
             
             # Bind to port
             self.socket.bind((self.bind_ip, self.port))
+            
+            logger.info(f"Art-Net socket bound to {self.bind_ip}:{self.port}")
+            logger.info(f"Listening for Art-Net on UDP port {self.port}")
+            logger.info(f"Send Art-Net to: 127.0.0.1, {self.bind_ip}, or 255.255.255.255")
             
             # Start receive thread
             self.running = True
@@ -218,7 +233,29 @@ class ArtNetController:
             - IP 192.168.1.100, Port 1 → Universe 2
         """
         self.universe_mapping = mapping.copy()
+        
+        # Tự động tắt auto-forward nếu không có nodes
+        if not self.universe_mapping:
+            self.auto_forward_enabled = False
+            logger.info("Auto-forward disabled: No nodes configured")
+        
         logger.info(f"Universe mapping updated: {len(mapping)} nodes configured")
+    
+    def set_auto_forward(self, enabled: bool):
+        """Bật/tắt auto-forward"""
+        # Chỉ cho phép bật nếu có nodes được cấu hình
+        if enabled and not self.universe_mapping:
+            logger.warning("Cannot enable auto-forward: No nodes configured")
+            return False
+        
+        self.auto_forward_enabled = enabled
+        status = "enabled" if enabled else "disabled"
+        logger.info(f"Auto-forward {status}")
+        return True
+    
+    def is_auto_forward_enabled(self) -> bool:
+        """Kiểm tra trạng thái auto-forward"""
+        return self.auto_forward_enabled
     
     def send_dmx_with_mapping(self, universe: int, dmx_data: bytes):
         """
@@ -245,10 +282,18 @@ class ArtNetController:
                         sent_count += 1
                         logger.debug(f"Sent Universe {universe} to {ip_address}:Port{port_num}")
             
-            # Nếu không có mapping, fallback về broadcast
+            # Nếu không có mapping, gửi đến localhost + broadcast
+            # Để có thể test với phần mềm thứ 3 trên cùng máy
             if sent_count == 0:
-                logger.warning(f"No mapping found for Universe {universe}, using broadcast")
+                logger.debug(f"No mapping found for Universe {universe}, sending to localhost + broadcast")
+                
+                # Gửi đến localhost (cho phần mềm thứ 3 trên cùng máy)
+                self.socket.sendto(packet_data, ('127.0.0.1', self.port))
+                
+                # Gửi broadcast (cho các thiết bị khác trên mạng)
                 self.socket.sendto(packet_data, ('255.255.255.255', self.port))
+                
+                sent_count = 2
             
             # Update local state
             with self.dmx_lock:
@@ -298,7 +343,7 @@ class ArtNetController:
         while self.running:
             try:
                 data, addr = self.socket.recvfrom(4096)
-                logger.debug(f"Received packet from {addr[0]}:{addr[1]}, size: {len(data)} bytes")
+                logger.info(f"RX from {addr[0]}:{addr[1]}, size: {len(data)} bytes")
                 self._handle_packet(data, addr)
                 
             except socket.timeout:
@@ -339,11 +384,19 @@ class ArtNetController:
         
         logger.info(f"Received DMX data: Universe {universe}, {len(dmx_data)} channels from {addr[0]}")
         
-        # Update local state
+        # Update local state (LUÔN LUÔN update để DMX View hiển thị)
         with self.dmx_lock:
             self.dmx_universe_data[universe] = dmx_data
         
-        # Call callback
+        # Auto-forward ONLY if enabled and nodes configured
+        if self.auto_forward_enabled and self.universe_mapping:
+            try:
+                self.send_dmx_with_mapping(universe, dmx_data)
+                logger.debug(f"Auto-forwarded Universe {universe} to {len(self.universe_mapping)} nodes")
+            except Exception as e:
+                logger.error(f"Error auto-forwarding DMX: {e}")
+        
+        # Call callback (LUÔN LUÔN gọi để DMX View update)
         if self.dmx_received_callback:
             try:
                 self.dmx_received_callback(universe, dmx_data, addr[0])

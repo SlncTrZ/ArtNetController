@@ -385,72 +385,91 @@ class SettingsTab(QWidget):
     def load_settings(self):
         """Load settings from config"""
         try:
-            # Art-Net settings
-            self.artnet_port_spin.setValue(
-                self.config_manager.get_app_config('artnet.port', 6454)
-            )
-            self.universe_spin.setValue(
-                self.config_manager.get_app_config('artnet.universe', 0)
-            )
-            self.refresh_rate_spin.setValue(
-                self.config_manager.get_app_config('artnet.refresh_rate', 30)
-            )
-            self.broadcast_edit.setText(
-                self.config_manager.get_app_config('artnet.broadcast_address', '255.255.255.255')
-            )
-            self.auto_discovery_checkbox.setChecked(
-                self.config_manager.get_app_config('artnet.auto_discovery', True)
-            )
+            # Art-Net settings (only if widgets exist)
+            if hasattr(self, 'artnet_port_spin'):
+                self.artnet_port_spin.setValue(
+                    self.config_manager.get_app_config('artnet.port', 6454)
+                )
+            if hasattr(self, 'universe_spin'):
+                self.universe_spin.setValue(
+                    self.config_manager.get_app_config('artnet.universe', 0)
+                )
+            if hasattr(self, 'refresh_rate_spin'):
+                self.refresh_rate_spin.setValue(
+                    self.config_manager.get_app_config('artnet.refresh_rate', 30)
+                )
+            if hasattr(self, 'broadcast_edit'):
+                self.broadcast_edit.setText(
+                    self.config_manager.get_app_config('artnet.broadcast_address', '255.255.255.255')
+                )
+            if hasattr(self, 'auto_discovery_checkbox'):
+                self.auto_discovery_checkbox.setChecked(
+                    self.config_manager.get_app_config('artnet.auto_discovery', True)
+                )
             
-            # Webserver settings
-            self.webserver_enabled_checkbox.setChecked(
-                self.config_manager.get_app_config('webserver.enabled', True)
-            )
-            self.webserver_port_spin.setValue(
-                self.config_manager.get_app_config('webserver.port', 8080)
-            )
-            self.webserver_host_edit.setText(
-                self.config_manager.get_app_config('webserver.host', '0.0.0.0')
-            )
-            self.upload_path_edit.setText(
-                self.config_manager.get_app_config('webserver.upload_path', 'data/music')
-            )
-            self.max_file_size_spin.setValue(
-                self.config_manager.get_app_config('webserver.max_file_size', 50)
-            )
+            # Webserver settings (only if widgets exist)
+            if hasattr(self, 'webserver_enabled_checkbox'):
+                self.webserver_enabled_checkbox.setChecked(
+                    self.config_manager.get_app_config('webserver.enabled', True)
+                )
+            if hasattr(self, 'webserver_port_spin'):
+                self.webserver_port_spin.setValue(
+                    self.config_manager.get_app_config('webserver.port', 8080)
+                )
+            if hasattr(self, 'webserver_host_edit'):
+                self.webserver_host_edit.setText(
+                    self.config_manager.get_app_config('webserver.host', '0.0.0.0')
+                )
+            if hasattr(self, 'upload_path_edit'):
+                self.upload_path_edit.setText(
+                    self.config_manager.get_app_config('webserver.upload_path', 'data/music')
+                )
+            if hasattr(self, 'max_file_size_spin'):
+                self.max_file_size_spin.setValue(
+                    self.config_manager.get_app_config('webserver.max_file_size', 50)
+                )
             
             # Show settings
-            self.show_path_edit.setText(
-                self.config_manager.get_app_config('show.default_path', 'data/shows')
-            )
-            self.auto_save_checkbox.setChecked(
-                self.config_manager.get_app_config('show.auto_save', True)
-            )
-            self.backup_count_spin.setValue(
-                self.config_manager.get_app_config('show.backup_count', 5)
-            )
+            if hasattr(self, 'show_path_edit'):
+                self.show_path_edit.setText(
+                    self.config_manager.get_app_config('show.default_path', 'data/shows')
+                )
+            if hasattr(self, 'auto_save_checkbox'):
+                self.auto_save_checkbox.setChecked(
+                    self.config_manager.get_app_config('show.auto_save', True)
+                )
+            if hasattr(self, 'backup_count_spin'):
+                self.backup_count_spin.setValue(
+                    self.config_manager.get_app_config('show.backup_count', 5)
+                )
             
-            # Recording settings
-            self.recording_path_edit.setText(
-                self.config_manager.get_app_config('recording.path', 'data/recordings')
-            )
-            self.auto_trim_checkbox.setChecked(
-                self.config_manager.get_app_config('recording.auto_trim_silence', True)
-            )
-            self.silence_threshold_slider.setValue(
-                self.config_manager.get_app_config('recording.silence_threshold', -40)
-            )
-            self.min_silence_spin.setValue(
-                int(self.config_manager.get_app_config('recording.min_silence_duration', 0.5))
-            )
+            # Recording settings (only if widgets exist)
+            if hasattr(self, 'recording_path_edit'):
+                self.recording_path_edit.setText(
+                    self.config_manager.get_app_config('recording.path', 'data/recordings')
+                )
+            if hasattr(self, 'auto_trim_checkbox'):
+                self.auto_trim_checkbox.setChecked(
+                    self.config_manager.get_app_config('recording.auto_trim_silence', True)
+                )
+            if hasattr(self, 'silence_threshold_slider'):
+                self.silence_threshold_slider.setValue(
+                    self.config_manager.get_app_config('recording.silence_threshold', -40)
+                )
+            if hasattr(self, 'min_silence_spin'):
+                self.min_silence_spin.setValue(
+                    int(self.config_manager.get_app_config('recording.min_silence_duration', 0.5))
+                )
             
-            # Security settings
-            self.admin_mode_checkbox.setChecked(
-                self.config_manager.get_app_config('security.admin_mode', False)
-            )
-            self.require_password_checkbox.setChecked(
-                self.config_manager.get_app_config('security.require_password', False)
-            )
+            # Security settings (only if widgets exist)
+            if hasattr(self, 'admin_mode_checkbox'):
+                self.admin_mode_checkbox.setChecked(
+                    self.config_manager.get_app_config('security.admin_mode', False)
+                )
+            if hasattr(self, 'require_password_checkbox'):
+                self.require_password_checkbox.setChecked(
+                    self.config_manager.get_app_config('security.require_password', False)
+                )
             
         except Exception as e:
             logger.error(f"Failed to load settings: {e}")

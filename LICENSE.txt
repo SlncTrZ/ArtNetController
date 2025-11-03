@@ -1,0 +1,50 @@
+DMX MASTER END-USER LICENSE AGREEMENT (EULA)
+
+Copyright (c) 2025 Truong Cong Dinh. All rights reserved.
+
+This End-User License Agreement ("EULA") is a legal agreement between you (either an individual or a single entity) and Truong Cong Dinh for the DMX Master software product.
+
+1. LICENSE GRANT
+Subject to the terms of this EULA, you are granted a non-exclusive, non-transferable license to use DMX Master software.
+
+2. TRIAL VERSION
+- Free trial period: 7 days
+- Full features available during trial
+- No credit card required
+
+3. LICENSED VERSION
+- Perpetual license tied to specific hardware
+- Offline activation supported
+- No recurring fees
+- Updates included for same major version
+
+4. RESTRICTIONS
+You may NOT:
+- Reverse engineer, decompile, or disassemble the software
+- Remove or modify any copyright notices
+- Transfer license to another computer without authorization
+- Use the software for illegal purposes
+
+5. DATA PRIVACY
+- License activation requires Device ID (hardware hash)
+- No personal data collected beyond email for license delivery
+- Offline operation supported
+
+6. WARRANTY DISCLAIMER
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+7. LIMITATION OF LIABILITY
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF THIS SOFTWARE.
+
+8. TERMINATION
+This license is effective until terminated. Your rights will terminate automatically if you fail to comply with this EULA.
+
+9. UPDATES
+- Updates that improve or fix bugs are provided free
+- Major version upgrades may require new license
+- User data (shows, audio) preserved during updates
+
+10. SUPPORT
+Email: truongcongdinh97tcd@gmail.com
+
+By installing DMX Master, you acknowledge that you have read this EULA and agree to be bound by its terms.

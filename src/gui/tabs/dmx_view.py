@@ -22,14 +22,14 @@ class ChannelWidget(QLabel):
     
     def init_ui(self):
         """Khởi tạo UI"""
-        self.setFixedSize(60, 80)
+        self.setFixedSize(35, 45)  # Thu nhỏ từ 60x80 -> 35x45
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("""
             QLabel {
                 border: 1px solid #555555;
                 background-color: #2b2b2b;
                 color: white;
-                font-size: 10px;
+                font-size: 7px;
             }
         """)
         self.update_display()
@@ -63,13 +63,13 @@ class ChannelWidget(QLabel):
                 border: 1px solid #555555;
                 background-color: {bg_color};
                 color: {text_color};
-                font-size: 10px;
+                font-size: 7px;
                 font-weight: bold;
             }}
         """)
         
-        # Text content
-        self.setText(f"Ch {self.channel}\n{self.value}\n{self.value/255*100:.0f}%")
+        # Text content - Thu gọn text
+        self.setText(f"{self.channel}\n{self.value}")
 
 class DMXViewTab(QWidget):
     """Tab DMX View"""
@@ -81,6 +81,7 @@ class DMXViewTab(QWidget):
         self.channel_widgets = {}
         self.dmx_data = bytes(512)
         self.received_data = {}  # universe -> (data, source_ip, timestamp)
+        self.artnet_controller = None  # Will be set by main_window
         
         self.init_ui()
         self.init_timer()
@@ -110,20 +111,16 @@ class DMXViewTab(QWidget):
         self.universe_combo.currentTextChanged.connect(self.on_universe_changed)
         control_layout.addWidget(self.universe_combo)
         
-        # Channel range
-        control_layout.addWidget(QLabel("Start Ch:"))
-        self.start_channel_spin = QSpinBox()
-        self.start_channel_spin.setRange(1, 512)
-        self.start_channel_spin.setValue(1)
-        self.start_channel_spin.valueChanged.connect(self.update_display_range)
-        control_layout.addWidget(self.start_channel_spin)
+        control_layout.addWidget(QLabel(" | "))
         
-        control_layout.addWidget(QLabel("Count:"))
-        self.channel_count_spin = QSpinBox()
-        self.channel_count_spin.setRange(1, 512)
-        self.channel_count_spin.setValue(64)
-        self.channel_count_spin.valueChanged.connect(self.update_display_range)
-        control_layout.addWidget(self.channel_count_spin)
+        # Auto-Forward checkbox
+        self.auto_forward_checkbox = QCheckBox("Auto-Forward to Nodes")
+        self.auto_forward_checkbox.setChecked(False)
+        self.auto_forward_checkbox.toggled.connect(self.on_auto_forward_toggled)
+        self.auto_forward_checkbox.setToolTip("Forward received Art-Net data to configured nodes")
+        control_layout.addWidget(self.auto_forward_checkbox)
+        
+        control_layout.addWidget(QLabel(" | "))
         
         # View options
         self.zero_channels_checkbox = QCheckBox("Show Zero Channels")
@@ -146,18 +143,19 @@ class DMXViewTab(QWidget):
     
     def create_dmx_display(self, parent_layout):
         """Tạo DMX display"""
-        display_group = QGroupBox("DMX Channels")
+        display_group = QGroupBox("DMX Channels (1-512)")
         display_layout = QVBoxLayout(display_group)
         
-        # Scroll area
+        # Scroll area - Đặt chiều cao vừa đủ
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMinimumHeight(400)
+        self.scroll_area.setMinimumHeight(600)  # Tăng chiều cao để chứa 32 hàng
         
         # Grid widget
         self.grid_widget = QWidget()
         self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setSpacing(2)
+        self.grid_layout.setSpacing(1)  # Giảm spacing từ 2 -> 1
+        self.grid_layout.setContentsMargins(2, 2, 2, 2)  # Giảm margins
         
         self.scroll_area.setWidget(self.grid_widget)
         display_layout.addWidget(self.scroll_area)
@@ -222,27 +220,20 @@ class DMXViewTab(QWidget):
         self.update_rate = 0
     
     def update_display_range(self):
-        """Update display range"""
+        """Update display range - Show all 512 channels"""
         # Clear existing widgets
         for widget in self.channel_widgets.values():
             widget.setParent(None)
         self.channel_widgets.clear()
         
-        # Create new widgets
-        start_channel = self.start_channel_spin.value()
-        channel_count = self.channel_count_spin.value()
+        # Create widgets for all 512 channels
+        cols = 32  # Tăng từ 16 -> 32 cột để giảm số hàng
         
-        cols = 16  # 16 channels per row
-        
-        for i in range(channel_count):
-            channel = start_channel + i
-            if channel > 512:
-                break
-            
+        for channel in range(1, 513):  # Channels 1-512
             widget = ChannelWidget(channel)
             
-            row = i // cols
-            col = i % cols
+            row = (channel - 1) // cols
+            col = (channel - 1) % cols
             self.grid_layout.addWidget(widget, row, col)
             
             self.channel_widgets[channel] = widget
@@ -254,7 +245,11 @@ class DMXViewTab(QWidget):
         """Update display with current DMX data"""
         for channel, widget in self.channel_widgets.items():
             if 1 <= channel <= 512:
-                value = self.dmx_data[channel - 1]
+                # Bounds checking để tránh IndexError
+                if channel - 1 < len(self.dmx_data):
+                    value = self.dmx_data[channel - 1]
+                else:
+                    value = 0  # Channel ngoài range = 0
                 
                 # Hide zero channels if option is disabled
                 if not self.zero_channels_checkbox.isChecked() and value == 0:
@@ -281,6 +276,29 @@ class DMXViewTab(QWidget):
             self.data_source_label.setText("Source: No Data")
         
         self.update_display()
+    
+    def on_auto_forward_toggled(self, checked: bool):
+        """Handle auto-forward checkbox toggle"""
+        if self.artnet_controller:
+            success = self.artnet_controller.set_auto_forward(checked)
+            if not success:
+                # Tắt checkbox nếu không thành công (không có nodes)
+                from PyQt6.QtWidgets import QMessageBox
+                self.auto_forward_checkbox.setChecked(False)
+                QMessageBox.warning(
+                    self,
+                    "Cannot Enable Auto-Forward",
+                    "No nodes configured in Hardware Manager.\n\n"
+                    "Please add nodes in Hardware Manager tab first."
+                )
+                logger.warning("Auto-forward toggle failed: No nodes configured")
+            else:
+                status = "enabled" if checked else "disabled"
+                logger.info(f"Auto-forward {status} by user")
+    
+    def set_artnet_controller(self, controller):
+        """Set reference to ArtNet controller"""
+        self.artnet_controller = controller
     
     def update_dmx_data(self, universe: int, dmx_data: bytes):
         """Update DMX data from Live Control"""

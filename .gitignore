@@ -104,3 +104,16 @@ shows/
 # Temp files
 *.tmp
 temp/
+# Build outputs
+*.zip
+*.rar
+installer_output/
+dist/
+build/
+
+# PyInstaller specs (keep only the main one)
+*.spec
+!DMXMaster_Complete.spec
+
+# License Generator executables
+tools/LicenseGenerator_v*/

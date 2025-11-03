@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 import os
 import sys
+import time
 
 def generate_rsa_keypair(key_size=2048):
     """Generate RSA key pair and save to PEM files"""
@@ -42,7 +43,7 @@ def generate_rsa_keypair(key_size=2048):
         base_dir = os.getcwd()
     else:
         # Running as Python script - save next to script
-        base_dir = os.path.dirname(__file__)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
     
     output_dir = os.path.join(base_dir, "rsa_keys")
     os.makedirs(output_dir, exist_ok=True)
@@ -91,12 +92,33 @@ def generate_rsa_keypair(key_size=2048):
     print("Files created in: " + output_dir)
     print("="*50)
     
-    input("\nPress Enter to exit...")
+    # Wait before exit (use time.sleep for windowed mode)
+    if getattr(sys, "frozen", False):
+        # Running as EXE - just wait 3 seconds
+        print("\nWindow will close in 3 seconds...")
+        time.sleep(3)
+    else:
+        # Running as Python script - can use input()
+        try:
+            input("\nPress Enter to exit...")
+        except:
+            time.sleep(2)
 
 if __name__ == "__main__":
     try:
         generate_rsa_keypair()
     except Exception as e:
         print(f"\n ERROR: {e}")
-        input("\nPress Enter to exit...")
+        import traceback
+        traceback.print_exc()
+        
+        # Wait before exit
+        if getattr(sys, "frozen", False):
+            print("\nWindow will close in 5 seconds...")
+            time.sleep(5)
+        else:
+            try:
+                input("\nPress Enter to exit...")
+            except:
+                time.sleep(3)
         sys.exit(1)

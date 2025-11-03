@@ -47,7 +47,9 @@ def main():
         sys.exit(app.exec())
         
     except Exception as e:
-        logger.error(f"Failed to start application: {e}")
+        logger.error(f"Failed to start application: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":

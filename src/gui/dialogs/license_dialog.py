@@ -17,6 +17,22 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
+
+
+class PasteOnlyTextEdit(QTextEdit):
+    """Custom QTextEdit that only allows paste, no copy/cut"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def keyPressEvent(self, event):
+        # Block Ctrl+C (copy) and Ctrl+X (cut)
+        from PyQt6.QtCore import Qt
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            if event.key() in (Qt.Key.Key_C, Qt.Key.Key_X):
+                return  # Ignore copy/cut
+        # Allow everything else (including Ctrl+V for paste)
+        super().keyPressEvent(event)
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +42,7 @@ class LicenseDialog(QDialog):
     def __init__(self, license_manager, parent=None):
         super().__init__(parent)
         self.license_manager = license_manager
-        self.setWindowTitle("License Activation - Art-Net Controller")
+        self.setWindowTitle("License Activation - DMX Master")
         self.setModal(True)
         self.setMinimumWidth(700)
         self.setMinimumHeight(600)
@@ -87,7 +103,7 @@ class LicenseDialog(QDialog):
         device_layout.addLayout(device_id_layout)
         
         contact_info = QLabel(
-            "Contact: <a href='mailto:truongcongdinh@example.com'>truongcongdinh@example.com</a>"
+            "Contact: <a href='mailto:truongcongdinh97tcd@gmail.com'>truongcongdinh97tcd@gmail.com</a>"
         )
         contact_info.setOpenExternalLinks(True)
         contact_info.setStyleSheet("color: #666; font-size: 10pt;")
@@ -106,7 +122,8 @@ class LicenseDialog(QDialog):
         input_layout.addWidget(info_text)
         
         # JSON license input
-        self.license_json_input = QTextEdit()
+        self.license_json_input = PasteOnlyTextEdit()
+        # Disable copy/cut - only allow paste
         self.license_json_input.setPlaceholderText('''{
   "device_id": "your_device_id_here",
   "license_id": "unique-license-id",
@@ -126,6 +143,10 @@ class LicenseDialog(QDialog):
         
         self.paste_btn = QPushButton("📋 Paste from Clipboard")
         self.paste_btn.clicked.connect(self._paste_license_json)
+
+        self.load_file_btn = QPushButton(' Load from File')
+        self.load_file_btn.clicked.connect(self._load_from_file)
+        paste_layout.addWidget(self.load_file_btn)
         paste_layout.addWidget(self.paste_btn)
         
         input_layout.addLayout(paste_layout)
@@ -180,7 +201,7 @@ class LicenseDialog(QDialog):
             "Copied!",
             f"✅ Device ID copied to clipboard!\n\n"
             f"Send this to the software author:\n{device_id[:32]}...\n\n"
-            f"Email: truongcongdinh@example.com"
+            f"Email: truongcongdinh97tcd@gmail.com"
         )
     
     def _paste_license_json(self):
@@ -205,6 +226,49 @@ class LicenseDialog(QDialog):
                 "Make sure you copied the entire license file content."
             )
     
+
+    def _load_from_file(self):
+        """Load license from JSON file"""
+        from PyQt6.QtWidgets import QFileDialog
+        from pathlib import Path
+        
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select License File",
+            str(Path.home()),
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    license_content = f.read()
+                
+                # Validate JSON
+                json.loads(license_content)
+                
+                # Set to text area
+                self.license_json_input.setPlainText(license_content)
+                
+                QMessageBox.information(
+                    self,
+                    "Loaded",
+                    f"License loaded from file:\n{Path(filename).name}\n\n"
+                    f"Click 'Activate License' to continue."
+                )
+                
+            except json.JSONDecodeError:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "Invalid JSON file!\n\nPlease select a valid license file."
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to load file:\n{e}"
+                )
     def update_status(self):
         """Update status labels"""
         info = self.license_manager.get_license_info()
@@ -237,6 +301,8 @@ class LicenseDialog(QDialog):
                     f"Trial expires in {days_remaining} days - All features unlocked"
                 )
                 self.trial_label.setStyleSheet("color: orange;")
+                # Clear JSON input when in trial mode
+                self.license_json_input.clear()
                 self.deactivate_btn.setEnabled(False)
         else:
             # Trial expired
@@ -245,6 +311,8 @@ class LicenseDialog(QDialog):
             
             self.trial_label.setText("Please purchase a license to continue using the software")
             self.trial_label.setStyleSheet("color: red; font-weight: bold;")
+            # Clear JSON input when expired
+            self.license_json_input.clear()
             self.deactivate_btn.setEnabled(False)
         
         # Platform
@@ -297,7 +365,7 @@ class LicenseDialog(QDialog):
                 self,
                 "✅ Activation Successful!",
                 f"{message}\n\n"
-                "🎉 Thank you for purchasing Art-Net Controller!\n\n"
+                "🎉 Thank you for purchasing DMX Master!\n\n"
                 "Your license is now permanently activated on this computer.\n"
                 "You can use the software offline anytime."
             )
@@ -329,13 +397,18 @@ class LicenseDialog(QDialog):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Clear license (implementation in license manager would delete license.dat)
+            # Deactivate license in license manager
+            self.license_manager.deactivate_license()
+            
+            # Clear JSON input
             self.license_json_input.clear()
             self.update_status()
             
             QMessageBox.information(
                 self,
                 "Deactivated",
-                "License has been deactivated.\n\n"
+                " License has been deactivated.\\n\\n"
+                "You are now using Trial mode.\\n"
+                "Contact the software author if you need to transfer this license to a new computer.\n\n"
                 "Contact the software author if you need to transfer this license to a new computer."
             )

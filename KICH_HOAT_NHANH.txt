@@ -1,0 +1,124 @@
+﻿═
+           CÁCH KÍCH HOẠT PHẦN MỀM - SIÊU NHANH              
+═
+
+━
+   DÀNH CHO KHÁCH HÀNG (User)
+━
+
+BƯỚC 1: LẤY DEVICE ID
+----------------------
+1. Mở phần mềm ArtNet Controller
+2. Menu: Help  License Activation
+3. Copy Device ID (mã 64 ký tự)
+   Ví dụ: abc123def456...
+
+BƯỚC 2: GỬI CHO ADMIN
+----------------------
+Email: truongcongdinh97@gmail.com
+Nội dung: "Xin license cho Device ID: abc123..."
+
+BƯỚC 3: NHẬN LICENSE JSON
+--------------------------
+Admin sẽ gửi cho bạn 1 file JSON
+
+BƯỚC 4: KÍCH HOẠT
+------------------
+1. Mở phần mềm
+2. Help  License Activation
+3. Paste toàn bộ JSON vào ô "Step 2"
+4. Click "✅ Activate License"
+5. XONG! 
+
+
+
+   DÀNH CHO ADMIN (Bạn - Truong Cong Dinh)
+
+
+BƯỚC 1: TẠO RSA KEYS (LẦN ĐẦU TIÊN - CHỈ 1 LẦN)
+------------------------------------------------
+cd H:\VSCode\ArtNetController\tools
+.\RSA_Key_Generator.exe
+
+ Tạo ra: rsa_keys/private_key.pem (GIỮ KÍN!)
+
+BƯỚC 2: TẠO LICENSE CHO KHÁCH HÀNG
+-----------------------------------
+cd H:\VSCode\ArtNetController\tools
+python generate_license.py
+
+Nhập:
+- Device ID: (paste từ email khách hàng)
+- License ID: KH-001 (hoặc tên khác)
+- Email: customer@example.com
+- Type: [Enter] (perpetual)
+
+BƯỚC 3: GỬI LICENSE
+--------------------
+ File tạo ra: generated_licenses/license_KH-001.json
+ Gửi file này cho khách hàng qua email
+
+
+
+   CÔNG CỤ ADMIN
+
+
+Tool 1: RSA_Key_Generator.exe
+    Vị trí: tools\RSA_Key_Generator.exe
+    Dùng: Tạo cặp key (private/public) - chạy 1 lần đầu
+    
+Tool 2: generate_license.py
+    Vị trí: tools\generate_license.py
+    Dùng: Tạo license cho khách hàng - chạy mỗi khi có KH mới
+
+
+
+   LƯU Ý CỰC QUAN TRỌNG
+
+
+ private_key.pem:
+   - TUYỆT ĐỐI GIỮ BÍ MẬT
+   - KHÔNG commit lên GitHub
+   - BACKUP vào USB an toàn
+   - Mất key = Không tạo license được nữa!
+
+ License:
+   - Vĩnh viễn (perpetual - không hết hạn)
+   - Gắn với 1 máy (Device ID)
+   - Offline (không cần internet sau khi kích hoạt)
+
+ Đổi máy/Cài lại Windows:
+   - Device ID thay đổi
+   - Cần tạo license mới
+
+
+
+   DEMO NHANH - TEST LICENSE
+
+
+# 1. Mở phần mềm  lấy Device ID
+# 2. Chạy tool tạo license:
+
+cd H:\VSCode\ArtNetController\tools
+python generate_license.py
+
+Device ID: (paste Device ID từ phần mềm)
+License ID: TEST-001
+Email: test@example.com
+Type: [Enter]
+
+# 3. Mở file: generated_licenses\license_TEST-001.json
+# 4. Copy toàn bộ nội dung JSON
+# 5. Paste vào phần mềm  Click Activate
+# 6. XONG! 
+
+
+
+   HỖ TRỢ
+
+
+Email: truongcongdinh97@gmail.com
+Tác giả: Truong Cong Dinh
+Ngày: 03/11/2025
+
+

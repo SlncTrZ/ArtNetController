@@ -1,12 +1,13 @@
 """
-Version information for Art-Net Controller
+Version information for DMX Master
 """
 
 __version__ = "1.0.0"
 __build__ = "2025.11.03"
 __author__ = "Trương Công Định"
-__github_repo__ = "https://github.com/truongcongdinh/ArtNetController"
-__update_url__ = "https://api.github.com/repos/truongcongdinh/ArtNetController/releases/latest"
+__email__ = "truongcongdinh97tcd@gmail.com"
+__github_repo__ = "https://github.com/truongcongdinh/DMXMaster"
+__update_url__ = "https://api.github.com/repos/truongcongdinh/DMXMaster/releases/latest"
 
 def get_version():
     """Get current version string"""

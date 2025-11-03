@@ -1,4 +1,4 @@
-"""
+﻿"""
 Hybrid License System with RSA Signature + Online Revocation Check + AES Encryption
 ====================================================================================
 
@@ -16,16 +16,16 @@ License Format:
     LICENSE-FILE: AES-256-GCM encrypted JSON
     
 Workflow:
-    User Install → Generate Device ID → Send to Admin
-    Admin Signs → User Activates → App Validates Offline
-    Background Check → Server Revocation List → Cache 24h
+    User Install â†’ Generate Device ID â†’ Send to Admin
+    Admin Signs â†’ User Activates â†’ App Validates Offline
+    Background Check â†’ Server Revocation List â†’ Cache 24h
     
 Security Features:
-    ✅ RSA-2048 cryptographic signatures (can't forge)
-    ✅ Hardware binding (can't transfer to other machines)
-    ✅ AES-256-GCM encryption (can't edit license file)
-    ✅ Cython compilation (can't read source code)
-    ✅ Online revocation (can remotely disable)
+    âœ… RSA-2048 cryptographic signatures (can't forge)
+    âœ… Hardware binding (can't transfer to other machines)
+    âœ… AES-256-GCM encryption (can't edit license file)
+    âœ… Cython compilation (can't read source code)
+    âœ… Online revocation (can remotely disable)
 """
 
 import os
@@ -57,8 +57,13 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # REPLACE THIS WITH YOUR ACTUAL PUBLIC KEY AFTER RUNNING generate_rsa_keys.py
 PUBLIC_KEY_PEM = """
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890PLACEHOLDER
-ThisWillBeReplacedByActualPublicKeyAfterRunningGenerateScript
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn4Fwz9oOBQzl1+j1JKu5
+UJo9KTroUM5pPN8hZspjiubhpl4wTsDacJD1dm1TtQ70YEj2zcTDr7FWMgGK7N4+
+fuEobuxyopjguiHngSXy5d3Oj1H6HSbNDp5m8qXOT4lMNJDfUHICNs4zH/6dvge7
+QTDTq93ehQb7q9OI20r58hyBNvN1/ZzszdrOPOeBSAsIvo6IxGcKV0E2bRTgIu7l
+4n9kfGjISNOzJe9f4s/Jtaeu8zEuO4EoxJDcIBxKeEWj14o/PN2AtX7cyGw9Q+9Z
+hdzKH+m/sQYAID9uJ2Jn5PE40DR/xGaoaE9QVMvyhB+xatDM40AF5SPWLHe4+v0F
+awIDAQAB
 -----END PUBLIC KEY-----
 """
 
@@ -69,7 +74,7 @@ TRIAL_DAYS = 7
 
 # AES Encryption Key (derived from hardware ID)
 # This ensures license file can only be decrypted on the same machine
-AES_SALT = b"ArtNetController_License_Salt_v1.0_DoNotShare"
+AES_SALT = b"DMXMaster_License_Salt_v1.0_DoNotShare"
 
 # File paths
 CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
@@ -269,6 +274,42 @@ class LicenseManager:
         trial_info = self.get_trial_info()
         return not trial_info['is_expired']
     
+    def is_valid(self) -> Tuple[bool, str]:
+        """
+        Check if software is properly licensed (with message)
+        Returns: (is_valid: bool, message: str)
+        """
+        # Check if license file exists and is valid
+        if LICENSE_FILE.exists():
+            license_data = self._load_license()
+            if license_data and self._validate_license_offline(license_data):
+                email = license_data.get('customer_email', 'Unknown')
+                issued = license_data.get('issued_date', 'Unknown')
+                return True, f"Licensed to {email} (issued: {issued})"
+        
+        # Check trial period
+        trial_info = self.get_trial_info()
+        if not trial_info['is_expired']:
+            days = trial_info['days_remaining']
+            return True, f"Trial: {days} days remaining"
+        else:
+            return False, "Trial expired"
+    
+    def is_admin(self) -> bool:
+        """
+        Check if current user has admin license
+        Admin license allows: Delete shows, Edit shows, Advanced settings
+        Returns: True if licensed (not trial), False if trial mode
+        """
+        if LICENSE_FILE.exists():
+            license_data = self._load_license()
+            if license_data and self._validate_license_offline(license_data):
+                # Licensed users = Admin
+                return True
+        
+        # Trial users = No admin rights
+        return False
+    
     def _load_license(self) -> Optional[dict]:
         """
         Load and decrypt license data from encrypted file
@@ -354,11 +395,11 @@ class LicenseManager:
                 hashes.SHA256()
             )
             
-            logger.info("✅ License signature valid (offline)")
+            logger.info("License signature valid (offline)")
             return True
             
         except InvalidSignature:
-            logger.error("❌ Invalid license signature")
+            logger.error("Invalid license signature")
             return False
         except Exception as e:
             logger.error(f"License validation error: {e}")
@@ -452,9 +493,9 @@ class LicenseManager:
                     json.dump(cache_data, f)
                 
                 if not is_valid:
-                    logger.warning(f"⚠️ License revoked: {result.get('reason', 'Unknown')}")
+                    logger.warning(f"License revoked: {result.get('reason', 'Unknown')}")
                 else:
-                    logger.info("✅ License valid (online check)")
+                    logger.info("License valid (online check)")
                 
                 return is_valid
                 

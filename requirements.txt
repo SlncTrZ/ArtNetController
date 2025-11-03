@@ -41,8 +41,9 @@ xmltodict>=0.13.0
 # System and Hardware
 # ===================================
 psutil>=5.9.0
-platform-system>=1.0.0
 numpy>=1.24.0           # Required for Cython compilation
+pygame>=2.6.0           # Audio playback
+tzdata>=2024.0          # Timezone support
 
 # ===================================
 # Development and Testing

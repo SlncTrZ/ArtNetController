@@ -1,6 +1,6 @@
 """
-Main Window cho Art-Net Controller
-PyQt6 GUI với 5 tabs chính và tích hợp Art-Net controller
+Main Window cho DMX Master
+PyQt6 GUI với 5 tabs chính và tích hợp DMX Master
 """
 
 import sys
@@ -32,11 +32,12 @@ from utils.config import ConfigManager
 
 # Import version info
 try:
-    from version import __version__, __build__, __author__, __github_repo__, __update_url__
+    from version import __version__, __build__, __author__, __email__, __github_repo__, __update_url__
 except ImportError:
     __version__ = "1.0.0"
     __build__ = "Unknown"
     __author__ = "Unknown"
+    __email__ = "support@example.com"
     __github_repo__ = "https://github.com"
     __update_url__ = ""
 
@@ -74,6 +75,9 @@ class MainWindow(QMainWindow):
         if not self._check_license():
             return
         
+        # Get admin status from license (licensed users = admin)
+        self._is_licensed_admin = self.license_manager.is_admin() if self.license_manager else False
+        
         # Setup UI
         self.setup_ui()
         self.setup_menu()
@@ -103,8 +107,14 @@ class MainWindow(QMainWindow):
     
     def setup_ui(self):
         """Setup main UI structure"""
-        self.setWindowTitle(f"Art-Net Controller v{__version__}")
+        self.setWindowTitle(f"DMX Master v{__version__}")
         self.setGeometry(100, 100, 1200, 800)
+        
+        # Set application icon
+        from PyQt6.QtGui import QIcon
+        icon_path = Path(__file__).parent.parent.parent / "assets" / "DMXMaster.ico"
+        if Path(icon_path).exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         
         # Central widget
         central_widget = QWidget()
@@ -123,7 +133,11 @@ class MainWindow(QMainWindow):
     def create_tabs(self):
         """Create all tabs"""
         # Show Manager Tab (formerly Live Control)
-        self.show_manager_tab = ShowManagerTab(self.config_manager)
+        self.show_manager_tab = ShowManagerTab(
+            config_manager=self.config_manager,
+            artnet_controller=self.artnet_controller,
+            is_admin=self._is_licensed_admin  # Only licensed users can delete/edit shows
+        )
         self.show_manager_tab.dmx_changed.connect(self.update_dmx_output)
         self.tab_widget.addTab(self.show_manager_tab, "Show Manager")
         
@@ -141,9 +155,10 @@ class MainWindow(QMainWindow):
         self.settings_tab.settings_changed.connect(self.apply_settings)
         self.tab_widget.addTab(self.settings_tab, "Settings")
         
-        # Record Tab
+        # Record Tab (only for admin users with valid license)
         self.record_tab = RecordTab(self.config_manager)
-        self.tab_widget.addTab(self.record_tab, "Record")
+        if self._is_admin and self._is_licensed_admin:
+            self.tab_widget.addTab(self.record_tab, "Record")
     
     def setup_menu(self):
         """Setup menu bar"""
@@ -151,6 +166,13 @@ class MainWindow(QMainWindow):
         
         # File menu
         file_menu = menubar.addMenu("&File")
+        
+        reload_shows_action = QAction("🔄 &Reload Shows", self)
+        reload_shows_action.setShortcut(QKeySequence("F5"))
+        reload_shows_action.triggered.connect(self.reload_shows)
+        file_menu.addAction(reload_shows_action)
+        
+        file_menu.addSeparator()
         
         self.edit_project_action = QAction("Edit &Project Name", self)
         self.edit_project_action.setShortcut(QKeySequence("Ctrl+P"))
@@ -304,10 +326,10 @@ class MainWindow(QMainWindow):
         
         help_menu.addSeparator()
         
-        exit_action = QAction("E&xit", self)
-        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
-        exit_action.triggered.connect(self.close)
-        help_menu.addAction(exit_action)
+        restart_action = QAction("🔄 &Restart Application", self)
+        restart_action.setShortcut(QKeySequence("Ctrl+R"))
+        restart_action.triggered.connect(self.restart_app)
+        help_menu.addAction(restart_action)
     
     def setup_status_bar(self):
         """Setup status bar"""
@@ -320,7 +342,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Ready")
     
     def init_artnet_controller(self):
-        """Initialize Art-Net controller"""
+        """Initialize DMX Master"""
         try:
             self.artnet_controller = ArtNetController()
             
@@ -328,10 +350,13 @@ class MainWindow(QMainWindow):
             self.artnet_controller.dmx_received_callback = self.on_dmx_received
             self.artnet_controller.node_discovered_callback = self.on_node_discovered
             
-            logger.info("Art-Net controller initialized")
+            # Pass controller to DMX View tab
+            self.dmx_view_tab.set_artnet_controller(self.artnet_controller)
+            
+            logger.info("DMX Master initialized")
         except Exception as e:
-            logger.error(f"Failed to initialize Art-Net controller: {e}")
-            QMessageBox.warning(self, "Warning", f"Failed to initialize Art-Net controller: {e}")
+            logger.error(f"Failed to initialize DMX Master: {e}")
+            QMessageBox.warning(self, "Warning", f"Failed to initialize DMX Master: {e}")
     
     def init_webserver(self):
         """Initialize webserver"""
@@ -534,6 +559,9 @@ class MainWindow(QMainWindow):
                 # Sử dụng send_dmx_with_mapping để gửi theo cấu hình
                 self.artnet_controller.send_dmx_with_mapping(universe, dmx_data)
                 self.dmx_data_updated.emit(universe, dmx_data)
+                
+                # LUÔN update DMX View khi phát show (dù có hoặc không có nodes)
+                self.dmx_view_tab.update_dmx_data(universe, dmx_data)
     
     def update_status(self):
         """Update status bar and widgets"""
@@ -567,35 +595,81 @@ class MainWindow(QMainWindow):
     def show_about(self):
         """Show About dialog"""
         about_text = f"""
-        <h2>Art-Net Controller</h2>
+        <h2>DMX Master</h2>
         <p><b>Version:</b> {__version__}<br>
         <b>Build:</b> {__build__}<br>
-        <b>Author:</b> {__author__}</p>
+        <b>Author:</b> {__author__}<br>
+        <b>Email:</b> <a href="mailto:{__email__}">{__email__}</a></p>
         
         <p><b>Professional Art-Net DMX Controller</b></p>
+
         
-        <p>Tính năng chính:</p>
-        <ul>
-        <li>✨ Show Manager với Spotify-style player</li>
-        <li>🎛️ Live DMX control với faders</li>
-        <li>🌐 Art-Net node discovery và universe mapping</li>
-        <li>📊 DMX data visualization</li>
-        <li>🎵 Show recording và playback</li>
-        <li>☁️ MP3 upload webserver</li>
-        <li>🔐 Admin authentication system</li>
-        <li>🌍 Multi-timezone support</li>
-        <li>💻 Cross-platform (Windows/Linux/Mac)</li>
-        </ul>
-        
-        <p><b>Technology Stack:</b><br>
-        PyQt6, Art-Net 4 Protocol, Flask, Python 3.11+</p>
-        
-        <p><b>GitHub:</b> <a href="{__github_repo}">{__github_repo}</a></p>
-        
-        <p>© 2025 {__author__}. All rights reserved.</p>
+        <p>© 2025 DMX Master Team. All rights reserved.</p>
         """
         
-        QMessageBox.about(self, "About Art-Net Controller", about_text)
+        QMessageBox.about(self, "About DMX Master", about_text)
+    
+    def reload_shows(self):
+        """Reload all shows from storage"""
+        reply = QMessageBox.question(
+            self,
+            "Reload Shows",
+            "🔄 Reload all shows from storage?\n\nThis will refresh the show library.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Reload shows in Show Manager tab
+                if hasattr(self, 'show_manager_tab'):
+                    self.show_manager_tab.load_shows()
+                    self.status_bar.showMessage("✅ Shows reloaded successfully", 3000)
+                    logger.info("Shows reloaded from storage")
+                    
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        "✅ All shows have been reloaded successfully!"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to reload shows: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"❌ Failed to reload shows:\n{e}"
+                )
+    
+    def restart_app(self):
+        """Restart the application"""
+        reply = QMessageBox.question(
+            self,
+            "Restart Application",
+            "🔄 Restart DMX Master?\n\nThe application will close and restart.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            logger.info("Restarting application...")
+            
+            # Get the current executable path
+            import sys
+            import subprocess
+            
+            try:
+                # Close current app
+                QApplication.quit()
+                
+                # Restart with same Python interpreter
+                subprocess.Popen([sys.executable, "main.py"], 
+                               cwd=Path(__file__).parent.parent.parent)
+            except Exception as e:
+                logger.error(f"Failed to restart: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"❌ Failed to restart application:\n{e}\n\nPlease restart manually."
+                )
+                self.close()
     
     def check_for_updates(self):
         """Check for updates from GitHub"""
@@ -620,7 +694,7 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             
             req = urllib.request.Request(__update_url__)
-            req.add_header('User-Agent', f'ArtNetController/{__version__}')
+            req.add_header('User-Agent', f'DMXMaster/{__version__}')
             
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
@@ -689,7 +763,7 @@ class MainWindow(QMainWindow):
                     <p><b>Current Version:</b> {__version__}<br>
                     <b>Latest Version:</b> {latest_version}</p>
                     
-                    <p>You are running the latest version of Art-Net Controller.</p>"""
+                    <p>You are running the latest version of DMX Master.</p>"""
                 )
             
             logger.info(f"Update check completed. Current: {__version__}, Latest: {latest_version}")
@@ -757,6 +831,9 @@ class MainWindow(QMainWindow):
         self.logout_action.setEnabled(is_admin)
         self.change_password_action.setEnabled(is_admin)
         self.edit_project_action.setEnabled(is_admin)
+        
+        # Update Record tab visibility (requires both admin login AND license)
+        self._update_record_tab_visibility()
     
     def _init_admin_password(self):
         """Initialize admin password from config or set default"""
@@ -792,7 +869,7 @@ class MainWindow(QMainWindow):
                 
                 <p>Your 7-day trial period has ended.</p>
                 
-                <p>To continue using Art-Net Controller, please purchase a license key.</p>
+                <p>To continue using DMX Master, please purchase a license key.</p>
                 
                 <p><b>Features include:</b></p>
                 <ul>
@@ -808,7 +885,7 @@ class MainWindow(QMainWindow):
                 
                 reply = QMessageBox.question(
                     None,
-                    "Trial Expired - Art-Net Controller",
+                    "Trial Expired - DMX Master",
                     msg,
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
@@ -827,7 +904,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     None,
                     "Application Closed",
-                    "Application will now close.\n\nPlease activate a license to continue using Art-Net Controller."
+                    "Application will now close.\n\nPlease activate a license to continue using DMX Master."
                 )
                 return False
             else:
@@ -844,7 +921,7 @@ class MainWindow(QMainWindow):
         msg = f"""
         <h3>📅 Trial Version</h3>
         
-        <p>You are using the trial version of Art-Net Controller.</p>
+        <p>You are using the trial version of DMX Master.</p>
         
         <p><b>Days Remaining:</b> {days_remaining}</p>
         
@@ -863,6 +940,50 @@ class MainWindow(QMainWindow):
         # Check if license status changed
         is_valid, message = self.license_manager.is_valid()
         logger.info(f"License status after dialog: {message}")
+        
+        # Update UI based on new license status
+        self._update_ui_for_license_status()
+    
+    def _update_ui_for_license_status(self):
+        """Update UI elements based on license status"""
+        # Update admin flag
+        old_admin_status = self._is_licensed_admin
+        self._is_licensed_admin = self.license_manager.is_admin()
+        
+        # If license status changed, update Record tab visibility
+        if old_admin_status != self._is_licensed_admin:
+            self._update_record_tab_visibility()
+    
+    def _update_record_tab_visibility(self):
+        """Update Record tab visibility based on admin login AND license status"""
+        # Record tab should be visible only if:
+        # 1. Admin is logged in (_is_admin)
+        # 2. License is activated (_is_licensed_admin)
+        should_show = self._is_admin and self._is_licensed_admin
+        
+        # Find Record tab index
+        record_tab_index = -1
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.widget(i) == self.record_tab:
+                record_tab_index = i
+                break
+        
+        if should_show and record_tab_index == -1:
+            # Add Record tab (after Settings tab)
+            settings_index = -1
+            for i in range(self.tab_widget.count()):
+                if self.tab_widget.tabText(i) == "Settings":
+                    settings_index = i
+                    break
+            
+            if settings_index != -1:
+                self.tab_widget.insertTab(settings_index + 1, self.record_tab, "Record")
+                logger.info("Record tab added (admin logged in + licensed)")
+        
+        elif not should_show and record_tab_index != -1:
+            # Remove Record tab
+            self.tab_widget.removeTab(record_tab_index)
+            logger.info("Record tab removed (not admin or not licensed)")
     
     @staticmethod
     def _hash_password(password: str) -> str:

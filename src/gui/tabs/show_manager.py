@@ -102,7 +102,7 @@ class ShowManagerTab(QWidget):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Show", "Duration", "Scenes", "Audio"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)  # Disable editing
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -245,8 +245,9 @@ class ShowManagerTab(QWidget):
                 with fp.open("r", encoding="utf-8") as f:
                     data = json.load(f)
                 name = data.get("name", fp.stem)
-                duration = float(data.get("duration", 0))
                 scenes = data.get("scenes", [])
+                # Calculate duration from scenes if not set
+                duration = float(data.get("duration", 0)) or self._estimate_total_duration(data)
                 audio_path = data.get("audio_file") or ""
                 audio = Path(audio_path).name if audio_path else "-"
 
@@ -419,8 +420,10 @@ class ShowManagerTab(QWidget):
             return timezone.utc
 
     def _update_clock_label(self):
-        now = datetime.now(timezone.utc).timestamp() + self._ntp_offset
-        dt = datetime.fromtimestamp(now, tz=self._tz())
+        # Get UTC time + NTP offset
+        now_utc = datetime.now(timezone.utc).timestamp() + self._ntp_offset
+        # Convert to selected timezone
+        dt = datetime.fromtimestamp(now_utc, tz=self._tz())
         self.lbl_time.setText(dt.strftime("%Y-%m-%d %H:%M:%S"))
 
     def _set_timezone(self, timezone: str):
@@ -615,7 +618,13 @@ class ShowManagerTab(QWidget):
 
     def _edit_show(self):
         if not self._is_admin:
-            QMessageBox.information(self, "Admin", "Admin mode required to edit shows")
+            QMessageBox.warning(
+                self,
+                "License Required",
+                "⚠️ Admin license required to edit shows.\n\n"
+                "Trial users can only play shows.\n"
+                "Please activate a license to unlock admin features."
+            )
             return
         name = self._selected_show_name()
         if not name:
@@ -625,7 +634,13 @@ class ShowManagerTab(QWidget):
 
     def _delete_show(self):
         if not self._is_admin:
-            QMessageBox.information(self, "Admin", "Admin mode required to delete shows")
+            QMessageBox.warning(
+                self, 
+                "License Required", 
+                "⚠️ Admin license required to delete shows.\n\n"
+                "Trial users can only play shows.\n"
+                "Please activate a license to unlock admin features."
+            )
             return
         name = self._selected_show_name()
         if not name:
