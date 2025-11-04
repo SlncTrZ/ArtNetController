@@ -88,6 +88,7 @@ class ShowManagerTab(QWidget):
         saved_tz = (self.config_manager.get_app_config('ui.timezone', 'UTC')
                     if self.config_manager else 'UTC')
         self._tz_index = max(0, self._timezones.index(saved_tz) if saved_tz in self._timezones else 0)
+        print(f"[DEBUG] Timezone initialized: {saved_tz}, index: {self._tz_index}")
 
         return bar
 
@@ -118,6 +119,11 @@ class ShowManagerTab(QWidget):
         self.btn_play_single = QPushButton("Play Single")
         self.btn_play_single.clicked.connect(self._play_single)
         btns.addWidget(self.btn_play_single)
+
+        # Reload shows button
+        self.btn_reload = QPushButton("Reload Shows")
+        self.btn_reload.clicked.connect(self._load_shows)
+        btns.addWidget(self.btn_reload)
 
         # Admin-only actions
         self.btn_edit = QPushButton("Edit")
@@ -258,10 +264,13 @@ class ShowManagerTab(QWidget):
                 self.table.setItem(r, 1, QTableWidgetItem(f"{duration:.1f}s"))
                 self.table.setItem(r, 2, QTableWidgetItem(str(len(scenes))))
                 self.table.setItem(r, 3, QTableWidgetItem(audio))
-            except Exception as e:
-                print(f"Failed to load show {fp}: {e}")
+            except Exception as e:                print(f"Failed to load show {fp}: {e}")
 
-    # ------------- Playlist ops -------------
+    def load_shows(self):
+        """Public method to reload shows from storage"""
+        self._load_shows()
+
+    # ------------- Playlist ops ------------- -------------
     def _add_selected_to_playlist(self):
         rows = {it.row() for it in self.table.selectedItems()}
         names_in_playlist = {self.playlist.item(i).text() for i in range(self.playlist.count())}
@@ -423,6 +432,7 @@ class ShowManagerTab(QWidget):
         # Get UTC time + NTP offset
         now_utc = datetime.now(timezone.utc).timestamp() + self._ntp_offset
         # Convert to selected timezone
+        print(f"[DEBUG Clock] TZ index: {self._tz_index}, TZ: {self._timezones[self._tz_index] if self._tz_index < len(self._timezones) else 'INVALID'}")
         dt = datetime.fromtimestamp(now_utc, tz=self._tz())
         self.lbl_time.setText(dt.strftime("%Y-%m-%d %H:%M:%S"))
 
