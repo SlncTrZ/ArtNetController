@@ -78,7 +78,7 @@ Source: "data\shows\example_show.json"; DestDir: "{app}\data\shows"; Flags: only
 Source: "data\audio\.gitkeep"; DestDir: "{app}\data\audio"; Flags: onlyifdoesntexist uninsneveruninstall
 
 ; Documentation
-Source: "DEPLOYMENT.md"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion isreadme
+Source: "docs\DEPLOYMENT.md"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion isreadme
 Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
