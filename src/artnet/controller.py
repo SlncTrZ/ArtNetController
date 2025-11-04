@@ -406,34 +406,127 @@ class ArtNetController:
             logger.warning("No DMX callback registered")
     
     def _handle_poll_reply(self, payload: bytes, addr: tuple):
-        """Xử lý Poll Reply packet"""
-        # Simplified poll reply parsing
-        # Real implementation would parse full Art-Net poll reply structure
+        """
+        Xử lý Poll Reply packet
+        Parse theo Art-Net specification để lấy đúng thông tin về ports
+        
+        ArtPollReply structure (simplified):
+        Byte 0-5: IP Address
+        Byte 6-7: Port (always 0x1936)
+        Byte 8-9: VersInfo (firmware version)
+        Byte 10-11: NetSwitch, SubSwitch
+        Byte 12-13: Oem
+        Byte 14: UbeaVersion
+        Byte 15: Status1
+        Byte 16-17: EstaMan
+        Byte 18-35: ShortName (18 bytes, null terminated)
+        Byte 36-99: LongName (64 bytes, null terminated)
+        Byte 100-163: NodeReport (64 bytes)
+        Byte 164-165: NumPorts (Hi/Lo) - SỐ PORTS Ở ÂY!
+        Byte 166-169: PortTypes[4]
+        Byte 170-173: GoodInput[4]
+        Byte 174-177: GoodOutput[4]
+        Byte 178-181: SwIn[4]
+        Byte 182-185: SwOut[4]
+        ...
+        """
         ip_address = addr[0]
         
-        # Create basic node info
-        node = ArtNetNode(
-            ip_address=ip_address,
-            short_name=f"Node_{ip_address.split('.')[-1]}",
-            long_name=f"Art-Net Node at {ip_address}",
-            universe=0,  # Would parse from packet
-            port_count=1,
-            last_seen=time.time()
-        )
-        
-        # Add to discovered nodes
-        with self.nodes_lock:
-            self.discovered_nodes[ip_address] = node
-        
-        # Call callback
-        if self.node_discovered_callback:
+        try:
+            # Minimum payload size check
+            if len(payload) < 200:
+                logger.warning(f"ArtPollReply from {ip_address} too short: {len(payload)} bytes")
+                return
+            
+            # Parse ShortName (byte 18-35, 18 bytes, null-terminated)
+            short_name_bytes = payload[18:36]
             try:
-                self.node_discovered_callback(node)
-            except Exception as e:
-                logger.error(f"Error in node discovery callback: {e}")
-        
-        logger.debug(f"Discovered Art-Net node: {ip_address}")
-    
+                short_name = short_name_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
+            except:
+                short_name = f"Node_{ip_address.split('.')[-1]}"
+            
+            if not short_name:
+                short_name = f"Node_{ip_address.split('.')[-1]}"
+            
+            # Parse LongName (byte 36-99, 64 bytes, null-terminated)
+            long_name_bytes = payload[36:100]
+            try:
+                long_name = long_name_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
+            except:
+                long_name = f"Art-Net Node at {ip_address}"
+            
+            if not long_name:
+                long_name = f"Art-Net Node at {ip_address}"
+            
+            # Parse NumPorts (byte 164-165, High byte + Low byte)
+            # Byte 164: NumPortsHi (usually 0)
+            # Byte 165: NumPortsLo (actual port count)
+            num_ports_hi = payload[164] if len(payload) > 164 else 0
+            num_ports_lo = payload[165] if len(payload) > 165 else 1
+            port_count = (num_ports_hi << 8) | num_ports_lo
+            
+            # Validate port count (Art-Net spec: max 4 ports per node typically)
+            # Some devices report weird values, cap at reasonable limit
+            if port_count > 16:
+                logger.warning(f"Node {ip_address} reported {port_count} ports, capping at 16")
+                port_count = 16
+            elif port_count == 0:
+                logger.warning(f"Node {ip_address} reported 0 ports, defaulting to 1")
+                port_count = 1
+            
+            # Parse SubSwitch (byte 11) for universe
+            sub_switch = payload[11] if len(payload) > 11 else 0
+            
+            # Parse NetSwitch (byte 10) for network
+            net_switch = payload[10] if len(payload) > 10 else 0
+            
+            # Calculate base universe (simplified)
+            universe = (net_switch << 8) | sub_switch
+            
+            # Parse Status1 (byte 15) for node type
+            status1 = payload[15] if len(payload) > 15 else 0
+            
+            # Create node info with parsed data
+            node = ArtNetNode(
+                ip_address=ip_address,
+                short_name=short_name,
+                long_name=long_name,
+                universe=universe,
+                port_count=port_count,
+                node_type=status1,
+                last_seen=time.time()
+            )
+            
+            # Add to discovered nodes
+            with self.nodes_lock:
+                self.discovered_nodes[ip_address] = node
+            
+            # Call callback
+            if self.node_discovered_callback:
+                try:
+                    self.node_discovered_callback(node)
+                except Exception as e:
+                    logger.error(f"Error in node discovery callback: {e}")
+            
+            logger.info(f"Discovered Art-Net node: {ip_address} - {short_name} - {port_count} ports")
+            logger.debug(f"  Long Name: {long_name}")
+            logger.debug(f"  Universe: {universe}, Status: {status1:02x}")
+            
+        except Exception as e:
+            logger.error(f"Error parsing ArtPollReply from {ip_address}: {e}")
+            # Fallback to basic node info
+            node = ArtNetNode(
+                ip_address=ip_address,
+                short_name=f"Node_{ip_address.split('.')[-1]}",
+                long_name=f"Art-Net Node at {ip_address}",
+                universe=0,
+                port_count=1,
+                last_seen=time.time()
+            )
+            with self.nodes_lock:
+                self.discovered_nodes[ip_address] = node
+
+
     def _handle_poll(self, payload: bytes, addr: tuple):
         """Xử lý Art-Net Poll - có thể respond nếu cần"""
         # For now, just log that we received a poll
