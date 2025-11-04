@@ -83,6 +83,11 @@ class DMXViewTab(QWidget):
         self.received_data = {}  # universe -> (data, source_ip, timestamp)
         self.artnet_controller = None  # Will be set by main_window
         
+        # Rate limiting for UI updates (prevent UI freeze)
+        self.last_ui_update = 0
+        self.update_interval = 0.05  # Max 20 FPS (50ms between updates)
+        self.pending_update = False
+        
         self.init_ui()
         self.init_timer()
     
@@ -107,8 +112,10 @@ class DMXViewTab(QWidget):
         # Universe selection
         control_layout.addWidget(QLabel("Universe:"))
         self.universe_combo = QComboBox()
-        self.universe_combo.addItems([str(i) for i in range(16)])
+        self.universe_combo.setEditable(True)  # Allow typing universe number
+        self.universe_combo.addItems([str(i) for i in range(16)])  # Default 0-15
         self.universe_combo.currentTextChanged.connect(self.on_universe_changed)
+        self.universe_combo.setToolTip("Select or type universe number (0-32767)")
         control_layout.addWidget(self.universe_combo)
         
         control_layout.addWidget(QLabel(" | "))
@@ -214,10 +221,24 @@ class DMXViewTab(QWidget):
         self.display_timer.timeout.connect(self.update_statistics)
         self.display_timer.start(1000)  # Update every second
         
+        # Pending update timer (for rate limiting)
+        self.pending_timer = QTimer()
+        self.pending_timer.timeout.connect(self.process_pending_update)
+        self.pending_timer.start(50)  # Check every 50ms (20 FPS max)
+        
+        # Timeout detection timer (check for stale data)
+        self.timeout_timer = QTimer()
+        self.timeout_timer.timeout.connect(self.check_data_timeout)
+        self.timeout_timer.start(1000)  # Check every second
+        
         # Rate calculation
         self.last_update_time = 0
         self.update_count = 0
         self.update_rate = 0
+        
+        # Timeout settings
+        self.data_timeout = 0.5  # Clear data if no update for 0.5 seconds
+        self.timeout_cleared = False  # Flag to prevent spam logging
     
     def update_display_range(self):
         """Update display range - Show all 512 channels"""
@@ -264,8 +285,17 @@ class DMXViewTab(QWidget):
     
     def on_universe_changed(self, universe_str: str):
         """Handle universe change"""
-        self.current_universe = int(universe_str)
-        
+        try:
+            self.current_universe = int(universe_str)
+        except ValueError:
+            logger.warning(f"Invalid universe number: {universe_str}")
+            return
+
+        # Validate range
+        if not (0 <= self.current_universe <= 32767):
+            logger.warning(f"Universe {self.current_universe} out of range (0-32767)")
+            return
+
         # Load data for this universe
         if self.current_universe in self.received_data:
             data, source_ip, timestamp = self.received_data[self.current_universe]
@@ -274,9 +304,9 @@ class DMXViewTab(QWidget):
         else:
             self.dmx_data = bytes(512)
             self.data_source_label.setText("Source: No Data")
-        
+
         self.update_display()
-    
+
     def on_auto_forward_toggled(self, checked: bool):
         """Handle auto-forward checkbox toggle"""
         if self.artnet_controller:
@@ -296,20 +326,68 @@ class DMXViewTab(QWidget):
                 status = "enabled" if checked else "disabled"
                 logger.info(f"Auto-forward {status} by user")
     
+    def process_pending_update(self):
+        """Process pending UI updates (called by timer) - PREVENTS UI FREEZE"""
+        import time
+        if self.pending_update:
+            current_time = time.time()
+            if current_time - self.last_ui_update >= self.update_interval:
+                self.update_display()
+                self.last_ui_update = current_time
+                self.pending_update = False
+    
+    def check_data_timeout(self):
+        """Check if data is stale and clear if timeout exceeded"""
+        import time
+        current_time = time.time()
+        
+        if self.current_universe in self.received_data:
+            _, _, timestamp = self.received_data[self.current_universe]
+            time_since_update = current_time - timestamp
+            
+            if time_since_update > self.data_timeout:
+                # Clear stale data ONLY ONCE
+                if not self.timeout_cleared:
+                    logger.info(f"Data timeout for universe {self.current_universe} ({time_since_update:.1f}s) - clearing display")
+                    self.dmx_data = bytes(512)  # All zeros
+                    self.data_source_label.setText("Source: No Data (Timeout)")
+                    self.update_display()
+                    self.update_rate = 0  # Reset rate to 0
+                    self.timeout_cleared = True  # Set flag to prevent spam
+            else:
+                # Reset flag when data is active
+                self.timeout_cleared = False
+        else:
+            # No data received yet - clear display if not already cleared
+            if not self.timeout_cleared:
+                self.dmx_data = bytes(512)  # All zeros
+                self.data_source_label.setText("Source: No Data")
+                self.update_display()
+                self.update_rate = 0
+                self.timeout_cleared = True
+    
     def set_artnet_controller(self, controller):
         """Set reference to ArtNet controller"""
         self.artnet_controller = controller
     
     def update_dmx_data(self, universe: int, dmx_data: bytes):
-        """Update DMX data from Live Control"""
+        """Update DMX data from Live Control or Show Playback"""
+        import time
+        timestamp = time.time()
+        
+        # Update received_data with timestamp (for timeout detection)
+        self.received_data[universe] = (dmx_data, "Show Playback", timestamp)
+        
         if universe == self.current_universe:
             self.dmx_data = dmx_data
-            self.data_source_label.setText("Source: Live Control")
+            self.data_source_label.setText("Source: Show Playback")
             self.update_display()
             
+            # Reset timeout flag when receiving new data
+            self.timeout_cleared = False
+            
         # Update rate calculation
-        import time
-        current_time = time.time()
+        current_time = timestamp
         self.update_count += 1
         
         if current_time - self.last_update_time >= 1.0:
@@ -318,24 +396,54 @@ class DMXViewTab(QWidget):
             self.last_update_time = current_time
     
     def update_received_dmx(self, universe: int, dmx_data: bytes, source_ip: str):
-        """Update received DMX data from Art-Net"""
+        """Update received DMX data from Art-Net - WITH RATE LIMITING"""
         import time
         timestamp = time.time()
         
+        logger.info(f"🎯 DMX View received data: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
+        
+        # ALWAYS store data (no rate limiting for data storage)
         self.received_data[universe] = (dmx_data, source_ip, timestamp)
         
+        # Auto-add universe to combo if not exists
+        universe_str = str(universe)
+        if self.universe_combo.findText(universe_str) == -1:
+            self.universe_combo.addItem(universe_str)
+            logger.info(f"➕ Added universe {universe} to combo box")
+        
         if universe == self.current_universe:
+            logger.info(f"🎯 Processing universe {universe} (current: {self.current_universe})")
+            # Validate and clip channel count to 512 max
+            dmx_data = dmx_data[:512] if len(dmx_data) > 512 else dmx_data
             self.dmx_data = dmx_data
-            self.data_source_label.setText(f"Source: {source_ip}")
-            self.update_display()
-        
-        # Update rate calculation
-        self.update_count += 1
-        
-        if time.time() - self.last_update_time >= 1.0:
-            self.update_rate = self.update_count
-            self.update_count = 0
-            self.last_update_time = time.time()
+            
+            # RATE LIMITED UI UPDATE (prevent UI freeze)
+            current_time = timestamp
+            if current_time - self.last_ui_update >= self.update_interval:
+                logger.info(f"🔄 Updating UI display for universe {universe}")
+                self.data_source_label.setText(f"Source: {source_ip}")
+                self.update_display()
+                self.last_ui_update = current_time
+                self.pending_update = False
+                logger.info(f"✅ UI updated successfully")
+            else:
+                # Mark that we have a pending update
+                self.pending_update = True
+                logger.info(f"⏳ UI update delayed (rate limited)")
+        else:
+            logger.info(f"⏭️ Skipping universe {universe} (current: {self.current_universe})")
+            
+            # Update rate calculation ONLY for current universe
+            self.update_count += 1
+            
+            # Reset timeout flag when receiving new data
+            self.timeout_cleared = False
+
+            if time.time() - self.last_update_time >= 1.0:
+                self.update_rate = self.update_count
+                logger.debug(f"DMX rate calculation: {self.update_count} packets in 1 second = {self.update_rate} Hz")
+                self.update_count = 0
+                self.last_update_time = time.time()
     
     def update_statistics(self):
         """Update statistics"""
@@ -354,7 +462,9 @@ class DMXViewTab(QWidget):
         
         # Update rate
         self.update_rate_label.setText(f"Update Rate: {self.update_rate} Hz")
-        self.data_rate_progress.setValue(min(self.update_rate, 44))
+        # Use actual update rate instead of fixed 44Hz, but cap progress bar at 50Hz max
+        self.data_rate_progress.setValue(min(self.update_rate, 50))
+        self.data_rate_progress.setFormat(f"DMX Rate: {self.update_rate} Hz")
         
         # Update last update time
         import time

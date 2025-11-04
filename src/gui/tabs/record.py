@@ -5,6 +5,7 @@ Record Tab - Tab ghi và chỉnh sửa DMX (chỉ admin)
 import logging
 import time
 import json
+import struct
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                            QPushButton, QLabel, QTableWidget, QTableWidgetItem,
@@ -16,15 +17,98 @@ from PyQt6.QtGui import QFont
 
 logger = logging.getLogger(__name__)
 
+# Binary DMX Recording Format Functions
+def write_dmxrec_file(file_path: Path, dmx_data_list: list):
+    """
+    Write DMX data to binary .dmxrec file
+    Format: [frame_count][frame1][frame2]...[frameN]
+    Frame format: [timestamp_ms(4bytes)][universe(2bytes)][channel_count(2bytes)][data(Nbytes)]
+    """
+    with open(file_path, 'wb') as f:
+        # Write frame count (4 bytes)
+        frame_count = len(dmx_data_list)
+        f.write(struct.pack('<I', frame_count))
+        
+        for frame in dmx_data_list:
+            # timestamp_ms (4 bytes, unsigned int)
+            timestamp_ms = int(frame['timestamp'] * 1000)
+            f.write(struct.pack('<I', timestamp_ms))
+            
+            # universe (2 bytes, unsigned short)
+            f.write(struct.pack('<H', frame['universe']))
+            
+            # channel_count (2 bytes, unsigned short)
+            channel_count = len(frame['data'])
+            f.write(struct.pack('<H', channel_count))
+            
+            # DMX data (N bytes, each channel is 1 byte)
+            f.write(bytes(frame['data']))
+    
+    logger.info(f"Binary DMX file written: {file_path} ({frame_count} frames)")
+
+def read_dmxrec_file(file_path: Path):
+    """
+    Read DMX data from binary .dmxrec file
+    Returns list of DMX frames
+    """
+    dmx_frames = []
+    
+    with open(file_path, 'rb') as f:
+        # Read frame count
+        frame_count_data = f.read(4)
+        if len(frame_count_data) != 4:
+            raise ValueError("Invalid .dmxrec file: missing frame count")
+        
+        frame_count = struct.unpack('<I', frame_count_data)[0]
+        logger.info(f"Reading {frame_count} frames from {file_path}")
+        
+        for i in range(frame_count):
+            # Read timestamp (4 bytes)
+            timestamp_data = f.read(4)
+            if len(timestamp_data) != 4:
+                logger.warning(f"Incomplete frame {i}: missing timestamp")
+                break
+            timestamp_ms = struct.unpack('<I', timestamp_data)[0]
+            
+            # Read universe (2 bytes)
+            universe_data = f.read(2)
+            if len(universe_data) != 2:
+                logger.warning(f"Incomplete frame {i}: missing universe")
+                break
+            universe = struct.unpack('<H', universe_data)[0]
+            
+            # Read channel count (2 bytes)
+            channel_count_data = f.read(2)
+            if len(channel_count_data) != 2:
+                logger.warning(f"Incomplete frame {i}: missing channel count")
+                break
+            channel_count = struct.unpack('<H', channel_count_data)[0]
+            
+            # Read DMX data (N bytes)
+            dmx_data = f.read(channel_count)
+            if len(dmx_data) != channel_count:
+                logger.warning(f"Incomplete frame {i}: expected {channel_count} channels, got {len(dmx_data)}")
+                break
+            
+            dmx_frames.append({
+                'timestamp': timestamp_ms / 1000.0,
+                'universe': universe,
+                'data': list(dmx_data)
+            })
+    
+    logger.info(f"Successfully read {len(dmx_frames)} frames from {file_path}")
+    return dmx_frames
+
 class RecordTab(QWidget):
     """Tab Record - Chỉ dành cho admin"""
     
     # Signal for thread-safe UI updates
     preview_update_signal = pyqtSignal(str)
     
-    def __init__(self, config_manager):
+    def __init__(self, config_manager, artnet_controller=None):
         super().__init__()
         self.config_manager = config_manager
+        self.artnet_controller = artnet_controller  # V2.0: for pause/resume output
         self.is_recording_active = False
         self.recorded_data = []
         self.start_time = None
@@ -139,7 +223,10 @@ class RecordTab(QWidget):
         universe_layout = QHBoxLayout()
         universe_layout.addWidget(QLabel("Record Universe:"))
         self.universe_combo = QComboBox()
-        self.universe_combo.addItems(["All"] + [str(i) for i in range(16)])
+        # V2.0: Hỗ trợ tối đa 512 universes (Art-Net 4 standard)
+        self.universe_combo.addItem("All", -1)
+        for i in range(512):
+            self.universe_combo.addItem(f"Universe {i}", i)
         universe_layout.addWidget(self.universe_combo)
         settings_layout.addLayout(universe_layout)
         
@@ -148,6 +235,22 @@ class RecordTab(QWidget):
         self.auto_trim_checkbox.setChecked(True)
         settings_layout.addWidget(self.auto_trim_checkbox)
         
+        # Disable DMX output during recording (V2.0 - Safety feature)
+        self.disable_output_checkbox = QCheckBox("Disable DMX Output During Record (Recommended)")
+        self.disable_output_checkbox.setChecked(True)  # ON by default for safety
+        self.disable_output_checkbox.setToolTip(
+            "When enabled, DMX output will be paused during recording\n"
+            "to prevent affecting live fixtures. This is recommended\n"
+            "when testing or creating new shows."
+        )
+        self.disable_output_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-weight: bold;
+                color: #ff9800;
+            }
+        """)
+        settings_layout.addWidget(self.disable_output_checkbox)
+
         # Silence threshold
         threshold_layout = QHBoxLayout()
         threshold_layout.addWidget(QLabel("Silence Threshold:"))
@@ -321,6 +424,16 @@ class RecordTab(QWidget):
         self.recorded_data = []
         self.start_time = time.time()
         
+        # V2.0: Pause DMX output if checkbox is enabled
+        if self.disable_output_checkbox.isChecked() and self.artnet_controller:
+            self.artnet_controller.pause_output()
+            logger.info("⏸️  DMX output PAUSED for recording (safety mode)")
+            self.status_label.setText("Recording... (DMX OUTPUT DISABLED)")
+            self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
+        else:
+            self.status_label.setText("Recording...")
+            self.status_label.setStyleSheet("")
+
         self.record_button.setText("STOP RECORDING")
         self.record_button.setStyleSheet("""
             QPushButton {
@@ -343,6 +456,11 @@ class RecordTab(QWidget):
         """Dừng recording"""
         self.is_recording_active = False
         
+        # V2.0: Resume DMX output if it was paused
+        if self.disable_output_checkbox.isChecked() and self.artnet_controller:
+            self.artnet_controller.resume_output()
+            logger.info("▶️  DMX output RESUMED after recording")
+
         self.record_button.setText("START RECORDING")
         self.record_button.setStyleSheet("""
             QPushButton {
@@ -463,19 +581,19 @@ class RecordTab(QWidget):
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     
     def save_recording(self):
-        """Lưu recording"""
+        """Lưu recording với binary format (.dmxrec + .json)"""
         if not self.recorded_data:
             return
         
-        # Get file name
+        # Get file name (without extension)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        default_name = f"DMX_Recording_{timestamp}.json"
+        default_name = f"DMX_Recording_{timestamp}"
         
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Recording",
             str(Path(self.config_manager.get_app_config('recording.path', 'data/recordings')) / default_name),
-            "JSON Files (*.json);;All Files (*)"
+            "DMX Recording (*.dmxrec);;All Files (*)"
         )
         
         if file_path:
@@ -485,14 +603,26 @@ class RecordTab(QWidget):
                 if self.auto_trim_checkbox.isChecked():
                     data_to_save = self.apply_auto_trim(data_to_save)
                 
-                # Create recording metadata
-                recording_data = {
+                # Get paths for both files
+                base_path = Path(file_path)
+                if base_path.suffix == '.dmxrec':
+                    base_path = base_path.with_suffix('')
+                
+                dmxrec_path = base_path.with_suffix('.dmxrec')
+                json_path = base_path.with_suffix('.json')
+                
+                # 1. Save binary DMX data (.dmxrec)
+                write_dmxrec_file(dmxrec_path, data_to_save)
+                
+                # 2. Save metadata (.json)
+                metadata = {
                     'metadata': {
-                        'name': Path(file_path).stem,
+                        'name': base_path.stem,
                         'created': time.time(),
                         'duration': data_to_save[-1]['timestamp'] if data_to_save else 0,
                         'data_points': len(data_to_save),
                         'universes': list(set(point['universe'] for point in data_to_save)),
+                        'binary_file': dmxrec_path.name,  # Reference to binary file
                         'settings': {
                             'universe_filter': self.universe_combo.currentText(),
                             'auto_trim': self.auto_trim_checkbox.isChecked(),
@@ -500,23 +630,23 @@ class RecordTab(QWidget):
                             'min_silence_duration': self.min_silence_spin.value()
                         }
                     },
-                    'data': data_to_save
+                    'format_version': '2.0',  # Binary format version
+                    'audio_file': None  # Will be set when creating show
                 }
                 
-                # Save to file
-                with open(file_path, 'w') as f:
-                    json.dump(recording_data, f, indent=2)
+                with open(json_path, 'w') as f:
+                    json.dump(metadata, f, indent=2)
                 
                 QMessageBox.information(
                     self,
                     "Recording Saved",
-                    f"Recording saved successfully to {file_path}"
+                    f"Recording saved successfully:\n- Binary: {dmxrec_path}\n- Metadata: {json_path}"
                 )
+                
+                logger.info(f"Recording saved in binary format: {dmxrec_path} + {json_path}")
                 
                 # Refresh recordings list
                 self.refresh_recordings()
-                
-                logger.info(f"Recording saved: {file_path}")
                 
             except Exception as e:
                 QMessageBox.critical(
@@ -804,17 +934,28 @@ class RecordTab(QWidget):
                 )
     
     def save_show_file(self, show_data):
-        """Save show data to shows directory"""
+        """Save show data to shows directory with binary format"""
         shows_dir = Path("data/shows")
         shows_dir.mkdir(exist_ok=True)
         
-        filename = f"{show_data['metadata']['name'].replace(' ', '_')}.json"
-        file_path = shows_dir / filename
+        show_name = show_data['metadata']['name'].replace(' ', '_')
+        base_path = shows_dir / show_name
         
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(show_data, f, indent=2, ensure_ascii=False)
+        # Save binary DMX data (.dmxrec)
+        dmxrec_path = base_path.with_suffix('.dmxrec')
+        write_dmxrec_file(dmxrec_path, show_data['data'])
         
-        logger.info(f"Show saved: {file_path}")
+        # Save show metadata (.json) - without DMX data
+        show_metadata = show_data.copy()
+        show_metadata['metadata']['binary_file'] = dmxrec_path.name
+        show_metadata['format_version'] = '2.0'
+        del show_metadata['data']  # Remove data from JSON (now in binary file)
+        
+        json_path = base_path.with_suffix('.json')
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(show_metadata, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Show saved with binary format: {dmxrec_path} + {json_path}")
 
 
 class CreateShowDialog(QDialog):

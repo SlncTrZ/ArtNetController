@@ -113,6 +113,9 @@ class ArtNetDMX(ArtNetPacket):
         length = struct.unpack('>H', payload[4:6])[0]  # Big Endian!
         dmx_data = payload[6:6+length]
         
+        # Debug: Log raw bytes
+        logger.debug(f"Universe bytes: {payload[2]:02x} {payload[3]:02x} -> {universe}")
+        
         return {
             'sequence': sequence,
             'physical': physical,
@@ -146,6 +149,9 @@ class ArtNetController:
         # Auto-forward control
         self.auto_forward_enabled = False  # Checkbox control
         
+        # V2.0: Output pause control (for recording safety)
+        self.output_paused = False
+
         # Thread locks
         self.nodes_lock = threading.Lock()
         self.dmx_lock = threading.Lock()
@@ -182,6 +188,16 @@ class ArtNetController:
             logger.error(f"Failed to start Art-Net controller: {e}")
             return False
     
+    def pause_output(self):
+        """Pause DMX output (V2.0 - for recording safety)"""
+        self.output_paused = True
+        logger.info("⏸️  Art-Net output PAUSED")
+
+    def resume_output(self):
+        """Resume DMX output (V2.0)"""
+        self.output_paused = False
+        logger.info("▶️  Art-Net output RESUMED")
+
     def stop(self):
         """Dừng Art-Net controller"""
         self.running = False
@@ -197,6 +213,10 @@ class ArtNetController:
     def send_dmx(self, universe: int, dmx_data: bytes, broadcast: bool = True):
         """Gửi DMX data đến universe"""
         if not self.running or not self.socket:
+            return False
+        
+        # V2.0: Skip sending if output is paused (recording safety)
+        if self.output_paused:
             return False
             
         try:
@@ -359,17 +379,24 @@ class ArtNetController:
         """Xử lý packet nhận được"""
         packet = ArtNetPacket.unpack(data)
         if not packet:
+            logger.warning(f"❌ Failed to unpack packet from {addr[0]}")
             return
         
         opcode = packet['opcode']
         payload = packet['payload']
         
+        # DEBUG: Log packet types
         if opcode == ArtNetPacket.ARTNET_DMX:
+            logger.info(f"📦 DMX packet received from {addr[0]}")
             self._handle_dmx_packet(payload, addr)
         elif opcode == ArtNetPacket.ARTNET_POLL_REPLY:
+            logger.info(f"📦 Poll Reply packet received from {addr[0]}")
             self._handle_poll_reply(payload, addr)
         elif opcode == ArtNetPacket.ARTNET_POLL:
+            logger.info(f"📦 Poll packet received from {addr[0]}")
             self._handle_poll(payload, addr)
+        else:
+            logger.info(f"📦 Unknown packet type 0x{opcode:04X} from {addr[0]}")
     
     def _handle_dmx_packet(self, payload: bytes, addr: tuple):
         """Xử lý DMX packet"""
@@ -382,7 +409,15 @@ class ArtNetController:
         universe = dmx_info['universe']
         dmx_data = dmx_info['dmx_data']
         
-        logger.info(f"Received DMX data: Universe {universe}, {len(dmx_data)} channels from {addr[0]}")
+        # VALIDATE: Clip to 512 channels max (prevent 515 channel bug)
+        if len(dmx_data) > 512:
+            logger.warning(f"DMX data truncated: {len(dmx_data)} → 512 channels from {addr[0]}")
+            dmx_data = dmx_data[:512]
+        
+        # REDUCED LOGGING: Only log every 10th packet to prevent spam
+        self._dmx_packet_count = getattr(self, '_dmx_packet_count', 0) + 1
+        if self._dmx_packet_count % 10 == 0:
+            logger.info(f"Received DMX data: Universe {universe}, {len(dmx_data)} channels from {addr[0]} (packet #{self._dmx_packet_count})")
         
         # Update local state (LUÔN LUÔN update để DMX View hiển thị)
         with self.dmx_lock:
@@ -399,11 +434,13 @@ class ArtNetController:
         # Call callback (LUÔN LUÔN gọi để DMX View update)
         if self.dmx_received_callback:
             try:
+                logger.info(f"🔄 Calling DMX callback for Universe {universe}, {len(dmx_data)} channels")
                 self.dmx_received_callback(universe, dmx_data, addr[0])
+                logger.info(f"✅ DMX callback completed successfully")
             except Exception as e:
-                logger.error(f"Error in DMX callback: {e}")
+                logger.error(f"❌ Error in DMX callback: {e}")
         else:
-            logger.warning("No DMX callback registered")
+            logger.warning("⚠️ No DMX callback registered - DMX data will not reach GUI!")
     
     def _handle_poll_reply(self, payload: bytes, addr: tuple):
         """
@@ -431,6 +468,20 @@ class ArtNetController:
         ...
         """
         ip_address = addr[0]
+        
+        # V2.0: Ignore poll replies from ourselves
+        try:
+            import socket as sock
+            s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            
+            if ip_address == local_ip or ip_address == "127.0.0.1":
+                logger.debug(f"Ignoring poll reply from self: {ip_address}")
+                return
+        except:
+            pass  # Continue if can't determine local IP
         
         try:
             # Minimum payload size check
@@ -465,12 +516,9 @@ class ArtNetController:
             num_ports_lo = payload[165] if len(payload) > 165 else 1
             port_count = (num_ports_hi << 8) | num_ports_lo
             
-            # Validate port count (Art-Net spec: max 4 ports per node typically)
-            # Some devices report weird values, cap at reasonable limit
-            if port_count > 16:
-                logger.warning(f"Node {ip_address} reported {port_count} ports, capping at 16")
-                port_count = 16
-            elif port_count == 0:
+            # V2.0: Hỗ trợ unlimited ports - không giới hạn
+            # Validate port count (chỉ check hợp lệ, không cap)
+            if port_count == 0:
                 logger.warning(f"Node {ip_address} reported 0 ports, defaulting to 1")
                 port_count = 1
             
@@ -528,9 +576,168 @@ class ArtNetController:
 
 
     def _handle_poll(self, payload: bytes, addr: tuple):
-        """Xử lý Art-Net Poll - có thể respond nếu cần"""
-        # For now, just log that we received a poll
+        """
+        Xử lý Art-Net Poll - Respond với thông tin node
+        V2.0: Cho phép các thiết bị khác scan được DMX Master
+        """
         logger.debug(f"Received Art-Net Poll from {addr[0]}")
+        
+        try:
+            # Tạo ArtPollReply packet
+            reply = self._create_poll_reply()
+            
+            # Gửi reply về cho requester
+            self.socket.sendto(reply, addr)
+            logger.info(f"Sent ArtPollReply to {addr[0]}")
+            
+        except Exception as e:
+            logger.error(f"Error sending PollReply: {e}")
+    
+    def _create_poll_reply(self) -> bytes:
+        """
+        Tạo ArtPollReply packet theo Art-Net specification
+        
+        Returns:
+            bytes: ArtPollReply packet
+        """
+        # Art-Net header
+        packet = bytearray(b"Art-Net\x00")
+        
+        # OpCode: 0x2100 (ArtPollReply) - Little Endian
+        packet.extend(struct.pack('<H', ArtNetPacket.ARTNET_POLL_REPLY))
+        
+        # IP Address (4 bytes) - lấy IP của interface
+        try:
+            # Lấy IP hiện tại của máy
+            import socket as sock
+            s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip_addr = s.getsockname()[0]
+            s.close()
+            ip_bytes = [int(x) for x in ip_addr.split('.')]
+        except:
+            ip_bytes = [127, 0, 0, 1]  # Fallback localhost
+        
+        packet.extend(bytes(ip_bytes))
+        
+        # Port (2 bytes) - 0x1936 (Little Endian)
+        packet.extend(struct.pack('<H', self.port))
+        
+        # VersInfo (2 bytes) - Firmware version (e.g., 2.0 → 0x0200)
+        packet.extend(struct.pack('>H', 0x0200))  # v2.0
+        
+        # NetSwitch (1 byte) - Network address (default 0)
+        packet.append(0)
+        
+        # SubSwitch (1 byte) - Subnet address (default 0)
+        packet.append(0)
+        
+        # Oem (2 bytes) - OEM code (Big Endian) - 0xFFFF = custom
+        packet.extend(struct.pack('>H', 0xFFFF))
+        
+        # UbeaVersion (1 byte) - UBEA version (default 0)
+        packet.append(0)
+        
+        # Status1 (1 byte) - Node status
+        # Bit 0-1: Indicator state (0=Unknown, 1=Locate, 2=Mute, 3=Normal)
+        # Bit 2-3: Port-Address Programming Authority (0=Unknown, 1=Front Panel)
+        # Bit 4: Boot from ROM
+        # Bit 5: RDM capable
+        # Bit 6-7: UBEA Present
+        status1 = 0b00000000  # Normal state
+        packet.append(status1)
+        
+        # EstaMan (2 bytes) - ESTA Manufacturer code (Little Endian) - 0xFFFF = not registered
+        packet.extend(struct.pack('<H', 0xFFFF))
+        
+        # ShortName (18 bytes) - Null-terminated string
+        short_name = "DMX Master"
+        short_name_bytes = short_name.encode('utf-8')[:17]  # Max 17 chars + null
+        packet.extend(short_name_bytes)
+        packet.extend(b'\x00' * (18 - len(short_name_bytes)))  # Pad với null
+        
+        # LongName (64 bytes) - Null-terminated string
+        long_name = "DMX Master Unlimited by TCD"
+        long_name_bytes = long_name.encode('utf-8')[:63]  # Max 63 chars + null
+        packet.extend(long_name_bytes)
+        packet.extend(b'\x00' * (64 - len(long_name_bytes)))  # Pad với null
+        
+        # NodeReport (64 bytes) - Status message
+        node_report = "#0001 [0000] Power On"
+        node_report_bytes = node_report.encode('utf-8')[:63]
+        packet.extend(node_report_bytes)
+        packet.extend(b'\x00' * (64 - len(node_report_bytes)))
+        
+        # NumPorts (2 bytes) - Hi/Lo byte
+        # V2.0: Advertise 16 ports (có thể mở rộng lên 512 nếu cần)
+        num_ports = 16
+        packet.append(num_ports >> 8)  # Hi byte
+        packet.append(num_ports & 0xFF)  # Lo byte
+        
+        # PortTypes (4 bytes) - Type of each port
+        # 0x80 = Output from Art-Net, can output DMX
+        for _ in range(4):
+            packet.append(0x80)
+        
+        # GoodInput (4 bytes) - Input status of ports (all zeros = not used)
+        packet.extend(b'\x00' * 4)
+        
+        # GoodOutput (4 bytes) - Output status
+        # Bit 7: Data transmitted
+        # Bit 6: Includes test packets
+        # Bit 5: Includes SIP packets
+        # Bit 4: Includes text packets
+        # Bit 3: Output power on
+        # Bit 2: Merging ArtNet data
+        for _ in range(4):
+            packet.append(0b10001000)  # Data transmitted, output on
+        
+        # SwIn (4 bytes) - Input universe
+        packet.extend(b'\x00' * 4)
+        
+        # SwOut (4 bytes) - Output universe (0-3)
+        for i in range(4):
+            packet.append(i)
+        
+        # SwVideo (1 byte) - deprecated
+        packet.append(0)
+        
+        # SwMacro (1 byte) - Macro key inputs
+        packet.append(0)
+        
+        # SwRemote (1 byte) - Remote trigger inputs
+        packet.append(0)
+        
+        # Spare (3 bytes)
+        packet.extend(b'\x00' * 3)
+        
+        # Style (1 byte) - 0=StNode, 1=StController, 2=StMedia, 3=StRoute, 4=StBackup
+        packet.append(1)  # Controller
+        
+        # MAC Address (6 bytes)
+        packet.extend(b'\x00' * 6)
+        
+        # BindIp (4 bytes) - IP address of root device
+        packet.extend(bytes(ip_bytes))
+        
+        # BindIndex (1 byte) - Network interface index
+        packet.append(1)
+        
+        # Status2 (1 byte) - Additional status
+        # Bit 0: Web browser config supported
+        # Bit 1: DHCP capable
+        # Bit 2: DHCP used
+        # Bit 3: Port 15-bit
+        # Bit 4-7: Reserved
+        status2 = 0b00000111  # Web + DHCP capable + used
+        packet.append(status2)
+        
+        # Filler (26 bytes) - Reserved for future use
+        packet.extend(b'\x00' * 26)
+        
+        logger.debug(f"Created ArtPollReply: {len(packet)} bytes")
+        return bytes(packet)
+
     
     def cleanup_old_nodes(self, timeout: float = 300.0):
         """Cleanup các nodes cũ không còn active"""

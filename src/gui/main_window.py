@@ -86,6 +86,10 @@ class MainWindow(QMainWindow):
         
         # Initialize components
         self.init_artnet_controller()
+        
+        # Connect signals for thread-safe DMX updates
+        self.dmx_data_updated.connect(self.on_dmx_data_updated_slot)
+        
         self.init_webserver()
         
         # Setup timers first
@@ -156,7 +160,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.settings_tab, "Settings")
         
         # Record Tab (only for admin users with valid license)
-        self.record_tab = RecordTab(self.config_manager)
+        self.record_tab = RecordTab(self.config_manager, self.artnet_controller)
         if self._is_admin and self._is_licensed_admin:
             self.tab_widget.addTab(self.record_tab, "Record")
     
@@ -308,6 +312,14 @@ class MainWindow(QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("&Help")
         
+        # Debug menu (for testing)
+        debug_menu = menubar.addMenu("&Debug")
+        
+        # Test DMX output
+        test_dmx_action = QAction("🧪 Test DMX Output", self)
+        test_dmx_action.triggered.connect(self.test_dmx_output)
+        debug_menu.addAction(test_dmx_action)
+        
         license_action = QAction("📝 &License Activation...", self)
         license_action.triggered.connect(self.show_license_dialog)
         help_menu.addAction(license_action)
@@ -318,6 +330,10 @@ class MainWindow(QMainWindow):
         check_update_action.triggered.connect(self.check_for_updates)
         help_menu.addAction(check_update_action)
         
+        view_logs_action = QAction("📁 View &Logs Folder", self)
+        view_logs_action.triggered.connect(self._open_logs_folder)
+        help_menu.addAction(view_logs_action)
+
         help_menu.addSeparator()
         
         about_action = QAction("&About", self)
@@ -330,6 +346,19 @@ class MainWindow(QMainWindow):
         restart_action.setShortcut(QKeySequence("Ctrl+R"))
         restart_action.triggered.connect(self.restart_app)
         help_menu.addAction(restart_action)
+    
+    def get_app_data_dir(self):
+        """Get application data directory (consistent across dev/build)"""
+        if hasattr(sys, '_MEIPASS'):
+            # Running as PyInstaller bundle
+            app_dir = Path(sys.executable).parent
+        else:
+            # Running as script
+            app_dir = Path(__file__).parent.parent.parent
+        
+        data_dir = app_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        return data_dir
     
     def setup_status_bar(self):
         """Setup status bar"""
@@ -508,15 +537,40 @@ class MainWindow(QMainWindow):
             logger.info("Network scan initiated")
     
     def on_dmx_received(self, universe: int, dmx_data: bytes, source_ip: str):
-        """Callback when DMX data received"""
+        """Callback when DMX data received - THREAD SAFE VERSION"""
+        logger.info(f"📥 DMX received callback: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
+        
+        # Store source_ip for signal
+        self._last_source_ip = source_ip
+        
+        # ONLY emit signal - let slot handle UI updates in main thread
+        logger.info(f"📡 Emitting DMX signal to GUI thread...")
         self.dmx_data_updated.emit(universe, dmx_data)
+        logger.info(f"✅ DMX signal emitted successfully")
         
-        # Update tabs
-        self.dmx_view_tab.update_received_dmx(universe, dmx_data, source_ip)
-        
-        # Record if enabled
+        # Record if enabled (safe from any thread)
         if hasattr(self, 'record_tab') and self.record_tab.is_recording():
-            self.record_tab.record_dmx_data(universe, dmx_data)
+            try:
+                self.record_tab.record_dmx_data(universe, dmx_data)
+            except Exception as e:
+                logger.error(f"Error recording DMX data: {e}")
+    
+    def on_dmx_data_updated_slot(self, universe: int, dmx_data: bytes):
+        """SLOT: Handle DMX data updates in main GUI thread - THREAD SAFE"""
+        try:
+            source_ip = getattr(self, '_last_source_ip', 'Unknown')
+            logger.info(f"🖥️ DMX slot received: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
+            
+            # Update DMX View tab safely in main thread
+            if hasattr(self, 'dmx_view_tab'):
+                logger.info(f"📺 Updating DMX View tab...")
+                self.dmx_view_tab.update_received_dmx(universe, dmx_data, source_ip)
+                logger.info(f"✅ DMX View updated successfully")
+            else:
+                logger.warning(f"⚠️ DMX View tab not found!")
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating DMX view: {e}")
     
     def on_node_discovered(self, node):
         """Callback when Art-Net node discovered"""
@@ -554,6 +608,10 @@ class MainWindow(QMainWindow):
         if universe is None or dmx_data is None:
             return
 
+        # Debug logging for show playback
+        non_zero_channels = sum(1 for x in dmx_data if x > 0) if dmx_data else 0
+        logger.info(f"🎵 Show output: Universe {universe}, {len(dmx_data) if dmx_data else 0} channels, {non_zero_channels} active")
+
         if self.artnet_controller and self.artnet_controller.running:
             if dmx_data:
                 # Sử dụng send_dmx_with_mapping để gửi theo cấu hình
@@ -562,6 +620,9 @@ class MainWindow(QMainWindow):
                 
                 # LUÔN update DMX View khi phát show (dù có hoặc không có nodes)
                 self.dmx_view_tab.update_dmx_data(universe, dmx_data)
+                logger.debug(f"Updated DMX View with universe {universe} data")
+        else:
+            logger.warning(f"Cannot send DMX: Art-Net controller not running")
     
     def update_status(self):
         """Update status bar and widgets"""
@@ -622,7 +683,17 @@ class MainWindow(QMainWindow):
             try:
                 # Reload shows in Show Manager tab
                 if hasattr(self, 'show_manager_tab'):
-                    self.show_manager_tab.load_shows()
+                    # Try different methods to refresh shows
+                    if hasattr(self.show_manager_tab, 'load_shows'):
+                        self.show_manager_tab.load_shows()
+                    elif hasattr(self.show_manager_tab, 'refresh_shows'):
+                        self.show_manager_tab.refresh_shows()
+                    elif hasattr(self.show_manager_tab, 'update_show_list'):
+                        self.show_manager_tab.update_show_list()
+                    else:
+                        # Fallback: recreate tab or trigger refresh
+                        logger.warning("No refresh method found in ShowManagerTab")
+                        
                     self.status_bar.showMessage("✅ Shows reloaded successfully", 3000)
                     logger.info("Shows reloaded from storage")
                     
@@ -638,6 +709,22 @@ class MainWindow(QMainWindow):
                     "Error",
                     f"❌ Failed to reload shows:\n{e}"
                 )
+    
+    def test_dmx_output(self):
+        """Test DMX output manually"""
+        logger.info("🧪 Manual DMX test initiated")
+        
+        # Create test DMX data: first 10 channels at 255, rest at 0
+        test_data = bytearray(512)
+        for i in range(10):
+            test_data[i] = 255
+        
+        # Send to universe 0
+        universe = 0
+        dmx_data = bytes(test_data)
+        
+        logger.info(f"🧪 Sending test DMX: Universe {universe}, 10 channels at 255")
+        self.update_dmx_output(universe, dmx_data)
     
     def restart_app(self):
         """Restart the application"""
@@ -802,6 +889,38 @@ class MainWindow(QMainWindow):
             )
             logger.error(f"Update check failed: {e}", exc_info=True)
     
+    def _open_logs_folder(self):
+        """Open logs folder in file explorer"""
+        import os
+        import subprocess
+        from pathlib import Path
+        
+        logs_dir = Path("logs").absolute()
+        
+        if logs_dir.exists():
+            try:
+                if os.name == 'nt':  # Windows
+                    os.startfile(logs_dir)
+                elif sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', str(logs_dir)])
+                else:  # Linux
+                    subprocess.run(['xdg-open', str(logs_dir)])
+                
+                logger.info(f"Opened logs folder: {logs_dir}")
+            except Exception as e:
+                logger.error(f"Failed to open logs folder: {e}")
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    f"Failed to open logs folder:\n{str(e)}\n\nPath: {logs_dir}"
+                )
+        else:
+            QMessageBox.warning(
+                self,
+                "Logs Not Found",
+                f"Logs folder does not exist:\n{logs_dir}\n\nLogs will be created when the app runs."
+            )
+
     def closeEvent(self, event):
         """Handle application close"""
         # Stop Art-Net

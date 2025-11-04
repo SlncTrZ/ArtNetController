@@ -43,8 +43,8 @@ LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 
 # Crash report settings
 CRASH_LOG_FILE = LOG_DIR / "crashes.log"
-GITHUB_REPO_OWNER = "yourusername"  # TODO: Update
-GITHUB_REPO_NAME = "ArtNetController"
+GITHUB_REPO_OWNER = "truongcongdinh97"
+GITHUB_REPO_NAME = "DMX-Master"
 GITHUB_ISSUES_API = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/issues"
 
 # Log rotation settings
@@ -481,8 +481,27 @@ def get_crash_reporter(config_manager=None) -> CrashReporter:
     
     if _crash_reporter_instance is None:
         _crash_reporter_instance = CrashReporter(config_manager)
-    
+
     return _crash_reporter_instance
+
+
+def setup_logging(config_manager=None):
+    """
+    Convenience function to setup enhanced logging system
+    
+    This is a drop-in replacement for utils.logger.setup_logging()
+    with enhanced features:
+    - Log rotation (10MB per file, max 5 files)
+    - Gzip compression for old logs
+    - Auto-cleanup (30 days retention)
+    - Multiple log levels
+    
+    Args:
+        config_manager: Optional ConfigManager instance
+    """
+    log_manager = get_log_manager(config_manager)
+    log_manager.setup_logging()
+    logger.info("Enhanced logging system initialized (V2.0)")
 
 
 if __name__ == "__main__":

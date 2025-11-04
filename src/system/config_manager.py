@@ -537,6 +537,127 @@ class ConfigManager:
         return f"ConfigManager(version={self.config.get('version')}, file={self.config_file})"
 
 
+def migrate_v1_files_to_v2() -> bool:
+    """
+    Migrate V1.0 config files to V2.0 unified config.json
+    
+    V1.0 structure:
+        - config/app_config.json (app settings)
+        - config/network_config.json (network settings)
+    
+    V2.0 structure:
+        - config/config.json (unified, all settings)
+    
+    Returns:
+        True if migration successful, False otherwise
+    """
+    try:
+        v1_app_config = Path("config/app_config.json")
+        v1_network_config = Path("config/network_config.json")
+        v2_config = Path("config/config.json")
+        
+        # Check if migration needed
+        if v2_config.exists():
+            logger.info("V2 config already exists, skipping migration")
+            return True
+        
+        if not v1_app_config.exists():
+            logger.info("No V1 config found, will create default V2 config")
+            return False
+        
+        logger.info("=" * 60)
+        logger.info("🔄 Starting V1.0 → V2.0 Config Migration")
+        logger.info("=" * 60)
+        
+        # Load V1 configs
+        v1_app = {}
+        v1_network = {}
+        
+        if v1_app_config.exists():
+            with open(v1_app_config, 'r', encoding='utf-8') as f:
+                v1_app = json.load(f)
+            logger.info(f"✅ Loaded {v1_app_config}")
+        
+        if v1_network_config.exists():
+            with open(v1_network_config, 'r', encoding='utf-8') as f:
+                v1_network = json.load(f)
+            logger.info(f"✅ Loaded {v1_network_config}")
+        
+        # Create V2 config from DEFAULT_CONFIG
+        v2_data = DEFAULT_CONFIG.copy()
+        
+        # Map V1 app config to V2 structure
+        if "artnet" in v1_app:
+            v2_data["network"]["artnet_port"] = v1_app["artnet"].get("port", 6454)
+            v2_data["network"]["broadcast_ip"] = v1_app["artnet"].get("broadcast_address", "255.255.255.255")
+            v2_data["recording"]["fps"] = v1_app["artnet"].get("refresh_rate", 30)
+        
+        if "show" in v1_app:
+            v2_data["paths"]["shows"] = v1_app["show"].get("default_path", "data/shows")
+            v2_data["recording"]["auto_save"] = v1_app["show"].get("auto_save", True)
+        
+        if "recording" in v1_app:
+            v2_data["paths"]["recordings"] = v1_app["recording"].get("path", "data/recordings")
+        
+        if "ui" in v1_app["app"] if "app" in v1_app else {}:
+            window = v1_app["app"]["ui" if "ui" in v1_app["app"] else "window"]
+            if "window" in v1_app["app"]:
+                v2_data["ui"]["window_width"] = v1_app["app"]["window"].get("width", 1200)
+                v2_data["ui"]["window_height"] = v1_app["app"]["window"].get("height", 800)
+        
+        if "security" in v1_app or "admin" in v1_app:
+            # Store admin password hash in V2 (we'll add a security section)
+            if "security" not in v2_data:
+                v2_data["security"] = {}
+            if "admin" in v1_app:
+                v2_data["security"]["admin_password_hash"] = v1_app["admin"].get("password_hash", "")
+        
+        if "project" in v1_app:
+            if "project" not in v2_data:
+                v2_data["project"] = {}
+            v2_data["project"]["name"] = v1_app["project"].get("name", "")
+        
+        # Map V1 network config to V2 structure  
+        if "network" in v1_network:
+            if "interface" in v1_network["network"]:
+                v2_data["network"]["interface"] = v1_network["network"]["interface"]
+            if "ip_address" in v1_network["network"] and v1_network["network"]["ip_address"] != "auto":
+                v2_data["network"]["artnet_ip"] = v1_network["network"]["ip_address"]
+        
+        # Set version and metadata
+        v2_data["version"] = "2.0.0"
+        v2_data["last_updated"] = datetime.now().isoformat()
+        v2_data["migrated_from"] = "1.0.0"
+        
+        # Backup V1 configs before migration
+        backup_dir = Path("config/v1_backup")
+        backup_dir.mkdir(exist_ok=True)
+        
+        import shutil
+        if v1_app_config.exists():
+            shutil.copy(v1_app_config, backup_dir / "app_config.json")
+        if v1_network_config.exists():
+            shutil.copy(v1_network_config, backup_dir / "network_config.json")
+        
+        logger.info(f"✅ V1 configs backed up to {backup_dir}")
+        
+        # Save V2 config
+        v2_config.parent.mkdir(parents=True, exist_ok=True)
+        with open(v2_config, 'w', encoding='utf-8') as f:
+            json.dump(v2_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"✅ V2 config created: {v2_config}")
+        logger.info("=" * 60)
+        logger.info("✅ Migration completed successfully!")
+        logger.info("=" * 60)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Migration failed: {e}", exc_info=True)
+        return False
+
+
 # Singleton instance
 _config_manager_instance: Optional[ConfigManager] = None
 
