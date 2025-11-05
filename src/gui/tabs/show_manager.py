@@ -23,6 +23,14 @@ except Exception:  # pragma: no cover
 import time
 import random
 
+# Import DMX Binary Player for binary show playback
+try:
+    from show.dmx_recorder import DMXPlayer
+except ImportError:
+    # Fallback if module not available
+    print("Warning: DMXPlayer not available - binary show playback disabled")
+    DMXPlayer = None
+
 
 class ShowManagerTab(QWidget):
     """Show Manager with playlist and a simple playback engine"""
@@ -244,19 +252,47 @@ class ShowManagerTab(QWidget):
             try:
                 with fp.open("r", encoding="utf-8") as f:
                     data = json.load(f)
-                name = data.get("name", fp.stem)
-                scenes = data.get("scenes", [])
-                # Calculate duration from scenes if not set
-                duration = float(data.get("duration", 0)) or self._estimate_total_duration(data)
-                audio_path = data.get("audio_file") or ""
-                audio = Path(audio_path).name if audio_path else "-"
+                
+                # Check if this is a binary format show (V2.0)
+                format_version = data.get("format_version", "1.0")
+                metadata = data.get("metadata", {})
+                
+                if format_version == "2.0" and "binary_file" in metadata:
+                    # Binary format show
+                    name = metadata.get("name", fp.stem)
+                    duration = float(metadata.get("duration", 0))
+                    binary_file = metadata.get("binary_file", "")
+                    audio_path = data.get("audio_file") or ""
+                    audio = Path(audio_path).name if audio_path else "-"
+                    
+                    # Check if binary file exists
+                    binary_path = shows_dir / binary_file
+                    if not binary_path.exists():
+                        print(f"Binary file not found for show {name}: {binary_path}")
+                        continue
+                    
+                    # Mark as binary format for playback engine
+                    data["is_binary_format"] = True
+                    data["binary_file_path"] = str(binary_path)
+                    
+                    scenes_count = "Binary"  # Binary shows don't have discrete scenes
+                else:
+                    # Legacy format show (V1.0)
+                    name = data.get("name", fp.stem)
+                    scenes = data.get("scenes", [])
+                    duration = float(data.get("duration", 0)) or self._estimate_total_duration(data)
+                    audio_path = data.get("audio_file") or ""
+                    audio = Path(audio_path).name if audio_path else "-"
+                    
+                    data["is_binary_format"] = False
+                    scenes_count = str(len(scenes))
 
                 self.shows_data[name] = data
                 r = self.table.rowCount()
                 self.table.insertRow(r)
                 self.table.setItem(r, 0, QTableWidgetItem(name))
                 self.table.setItem(r, 1, QTableWidgetItem(f"{duration:.1f}s"))
-                self.table.setItem(r, 2, QTableWidgetItem(str(len(scenes))))
+                self.table.setItem(r, 2, QTableWidgetItem(scenes_count))
                 self.table.setItem(r, 3, QTableWidgetItem(audio))
             except Exception as e:
                 print(f"Failed to load show {fp}: {e}")
@@ -369,10 +405,31 @@ class ShowManagerTab(QWidget):
         self.playlist.setCurrentRow(self.current_show_index)
         self.lbl_status.setText(f"Playing: {name}")
 
-        total_seconds = float(data.get("duration", 0)) or self._estimate_total_duration(data)
-        self._current_total = total_seconds
+        # Detect show format and use appropriate engine
+        is_binary = data.get("is_binary_format", False)
+        
+        if is_binary:
+            # Binary format show (.dmxrec)
+            binary_file_path = data.get("binary_file_path")
+            if not binary_file_path:
+                QMessageBox.warning(self, "Error", f"Binary file path not found for show '{name}'")
+                return
+            
+            metadata = data.get("metadata", {})
+            duration = float(metadata.get("duration", 0))
+            self._current_total = duration
+            
+            print(f"Playing binary show: {name} ({binary_file_path})")
+            self.playback_engine = BinaryPlaybackEngine(binary_file_path, duration)
+        else:
+            # Legacy format show (scenes)
+            total_seconds = float(data.get("duration", 0)) or self._estimate_total_duration(data)
+            self._current_total = total_seconds
+            
+            print(f"Playing legacy show: {name}")
+            self.playback_engine = SimplePlaybackEngine(data)
 
-        self.playback_engine = SimplePlaybackEngine(data)
+        # Connect signals (same for both engines)
         self.playback_engine.progress_updated.connect(self._on_progress)
         self.playback_engine.time_tick.connect(self._on_time_tick)
         self.playback_engine.show_completed.connect(self._on_show_done)
@@ -753,3 +810,121 @@ class SimplePlaybackEngine(QThread):
             return float(sum(float(s.get('duration', 0)) for s in scenes))
         except Exception:
             return 0.0
+
+
+class BinaryPlaybackEngine(QThread):
+    """Binary DMX show player using DMXPlayer for .dmxrec files"""
+
+    progress_updated = pyqtSignal(float)
+    time_tick = pyqtSignal(float, float)  # elapsed, total seconds
+    show_completed = pyqtSignal()
+    frame_ready = pyqtSignal(int, bytes)
+
+    def __init__(self, binary_file_path: str, show_duration: float = 0):
+        super().__init__()
+        self.binary_file_path = binary_file_path
+        self.show_duration = show_duration
+        self._running = False
+        self._paused = False
+        self.dmx_player = None
+
+    def run(self):
+        if DMXPlayer is None:
+            print("DMXPlayer not available - cannot play binary show")
+            return
+
+        self._running = True
+        self._paused = False
+        start_time = time.monotonic()
+
+        try:
+            # Open binary recording
+            self.dmx_player = DMXPlayer(self.binary_file_path, buffer_size=100)
+            if not self.dmx_player.open():
+                print(f"Failed to open binary file: {self.binary_file_path}")
+                return
+
+            # Get recording info
+            info = self.dmx_player.get_info()
+            total_duration = self.show_duration or info.get('duration', 0)
+            fps = info.get('fps', 40.0)
+            frame_interval = 1.0 / fps
+
+            print(f"Playing binary show: {info['frame_count']} frames @ {fps} FPS, {total_duration:.1f}s")
+
+            # Start multithreaded playback
+            if not self.dmx_player.start_playback():
+                print("Failed to start DMX playback")
+                return
+
+            # Playback loop
+            next_frame_time = time.monotonic()
+            frames_played = 0
+
+            while self._running:
+                # Handle pause
+                while self._paused and self._running:
+                    time.sleep(0.05)
+                    next_frame_time = time.monotonic()  # Reset timing after pause
+                    continue
+
+                if not self._running:
+                    break
+
+                # Get next frame from buffer
+                frame = self.dmx_player.get_next_frame(timeout=0.1)
+                if frame is None:
+                    # End of recording
+                    break
+
+                # Emit frame
+                self.frame_ready.emit(frame.universe, frame.data)
+                frames_played += 1
+
+                # Calculate progress and timing
+                current_time = time.monotonic()
+                elapsed = current_time - start_time
+                
+                if total_duration > 0:
+                    progress = min(100.0, (elapsed / total_duration) * 100.0)
+                    self.progress_updated.emit(progress)
+                
+                self.time_tick.emit(elapsed, total_duration)
+
+                # Frame rate control
+                next_frame_time += frame_interval
+                sleep_time = next_frame_time - current_time
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                elif sleep_time < -0.1:  # If we're more than 100ms behind, reset timing
+                    next_frame_time = current_time
+
+            if self._running:
+                self.progress_updated.emit(100.0)
+                self.show_completed.emit()
+
+        except Exception as e:
+            print(f"Error during binary playback: {e}")
+        finally:
+            if self.dmx_player:
+                try:
+                    self.dmx_player.stop_playback()
+                    self.dmx_player.close()
+                except Exception as e:
+                    print(f"Error closing DMX player: {e}")
+                self.dmx_player = None
+
+    def pause(self):
+        self._paused = True
+
+    def stop(self):
+        self._running = False
+        if self.dmx_player:
+            try:
+                self.dmx_player.stop_playback()
+            except Exception:
+                pass
+        try:
+            self.wait(2000)  # Wait up to 2 seconds for thread to finish
+        except Exception:
+            pass
