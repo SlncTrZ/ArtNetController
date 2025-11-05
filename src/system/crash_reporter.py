@@ -25,6 +25,7 @@ import traceback
 import platform
 import json
 import gzip
+import os
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
@@ -35,8 +36,18 @@ from urllib.error import URLError
 
 logger = logging.getLogger(__name__)
 
-# Logging configuration
-LOG_DIR = Path("logs")
+# Logging configuration - Use user data directory to avoid permission issues
+def get_user_data_dir():
+    """Get user data directory that has write permissions"""
+    if sys.platform == 'win32':
+        # Windows: Use AppData/Local
+        appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+        return Path(appdata) / "DMX Master LTS"
+    else:
+        # Linux/Mac: Use home directory
+        return Path.home() / ".dmx-master-lts"
+
+LOG_DIR = get_user_data_dir() / "logs"
 LOG_FILE = LOG_DIR / "artnet_controller.log"
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'

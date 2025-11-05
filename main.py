@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-from gui.main_window import MainWindow
-from system.crash_reporter import setup_logging, setup_exception_handler
-from utils.config import ConfigManager
+from src.gui.main_window import MainWindow
+from src.system.crash_reporter import setup_logging, setup_exception_handler
+from src.utils.config import ConfigManager
 
 def main():
     """Main entry point của ứng dụng"""

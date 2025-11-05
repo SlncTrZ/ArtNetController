@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                            QLabel, QComboBox, QGroupBox, QScrollArea,
                            QSpinBox, QPushButton, QCheckBox, QProgressBar)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QPalette
+from PyQt6.QtGui import QFont, QPalette, QPainter, QBrush, QColor
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ class ChannelWidget(QLabel):
                 background-color: #2b2b2b;
                 color: white;
                 font-size: 7px;
+                font-weight: bold;
             }
         """)
         self.update_display()
@@ -37,47 +38,41 @@ class ChannelWidget(QLabel):
     def set_value(self, value: int):
         """Set channel value"""
         self.value = value
-        self.update_display()
+        self.update()  # Trigger paintEvent
+    
+    def paintEvent(self, event):
+        """Custom paint event to draw fill effect"""
+        painter = QPainter(self)
+        
+        # Get widget dimensions
+        width = self.width() - 2  # Account for border
+        height = self.height() - 2  # Account for border
+        
+        # Calculate fill height based on value
+        fill_height = int((self.value / 255) * height)
+        
+        # Draw background
+        painter.fillRect(1, 1, width, height, QColor("#2b2b2b"))
+        
+        # Draw fill if value > 0
+        if self.value > 0:
+            fill_color = QColor("#4444ff")  # Blue color
+            fill_rect_y = height - fill_height + 1  # Fill from bottom
+            painter.fillRect(1, fill_rect_y, width, fill_height, fill_color)
+        
+        # Draw border
+        painter.setPen(QColor("#555555"))
+        painter.drawRect(0, 0, self.width() - 1, self.height() - 1)
+        
+        # Draw text
+        painter.setPen(QColor("#ffffff" if self.value > 0 else "#888888"))
+        painter.setFont(QFont("Arial", 7, QFont.Weight.Bold))
+        text = f"{self.channel}\n{self.value}"
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
     
     def update_display(self):
-        """Update display with fill effect based on DMX value"""
-        # Calculate fill percentage (0-100%)
-        fill_percentage = (self.value / 255) * 100
-        
-        # Use single blue color for all values
-        fill_color = "#4444ff"  # Bright blue
-        text_color = "#ffffff" if self.value > 0 else "#888888"
-        
-        # Create gradient effect - fill from bottom to top
-        if self.value == 0:
-            # Empty - just border and background
-            self.setStyleSheet(f"""
-                QLabel {{
-                    border: 1px solid #555555;
-                    background-color: #2b2b2b;
-                    color: {text_color};
-                    font-size: 7px;
-                    font-weight: bold;
-                }}
-            """)
-        else:
-            # Fill effect using linear gradient - single blue color
-            self.setStyleSheet(f"""
-                QLabel {{
-                    border: 1px solid #555555;
-                    background: linear-gradient(to top, 
-                        {fill_color} 0%, 
-                        {fill_color} {fill_percentage}%, 
-                        #2b2b2b {fill_percentage}%, 
-                        #2b2b2b 100%);
-                    color: {text_color};
-                    font-size: 7px;
-                    font-weight: bold;
-                }}
-            """)
-        
-        # Text content - Show channel and value
-        self.setText(f"{self.channel}\n{self.value}")
+        """Update display - now just triggers repaint"""
+        self.update()  # Trigger paintEvent
 
 class DMXViewTab(QWidget):
     """Tab DMX View"""
