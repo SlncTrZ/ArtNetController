@@ -643,10 +643,11 @@ class RecordTab(QWidget):
                     color: white;
                     font-weight: bold;
                     border-radius: 5px;
-                    animation: blink 1s infinite;
+                    border: 2px solid #ff6f00;
                 }
                 QPushButton:hover {
                     background-color: #f57c00;
+                    border: 2px solid #e65100;
                 }
             """)
             
@@ -670,7 +671,6 @@ class RecordTab(QWidget):
                     border-radius: 5px;
                     font-family: 'Courier New', monospace;
                     font-weight: bold;
-                    animation: blink 1s infinite;
                 }
             """)
             

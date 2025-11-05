@@ -2,10 +2,10 @@
 Version information for DMX Master LTS
 """
 
-__version__ = "1.0.1"
-__version_name__ = "DMX Master LTS 1.0.1"
-__build__ = "2025.11.05"
-__author__ = "Trương Công Định"
+__version__ = "1.0.4"
+__version_name__ = "DMX Master LTS 1.0.4"
+__build__ = "2025.11.06.1"
+__release_date__ = "2025-11-06"
 __email__ = "truongcongdinh97tcd@gmail.com"
 __github_repo__ = "https://github.com/truongcongdinh97/DMX-Master"
 __update_url__ = "https://api.github.com/repos/truongcongdinh97/DMX-Master/releases/latest"
@@ -22,9 +22,13 @@ __features__ = [
     "Professional Show Management",
     "Rainbow Effects & Automation",
     "🎵 Timecode Sync Recording",
-    "Depence/GrandMA Integration",
+    "Depence/GrandMA Integration", 
     "Net-timecode & MTC Support",
-    "💙 Enhanced DMX View (Fill UI)"
+    "💙 Enhanced DMX View (Fill UI)",
+    "🔧 CANCEL RECORDING Feature",
+    "🌍 Fixed Art-Net Packet Parsing",
+    "� Full Depence Broadcast Support",
+    "🔧 Enhanced Network Compatibility"
 ]
 
 def get_version():
