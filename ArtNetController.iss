@@ -1,15 +1,16 @@
-; Inno Setup Script for ArtNetController V2.0
-; Automatically generated installer script
+; Inno Setup Script for DMX Master LTS 1.0.0
+; Professional Art-Net Lighting Controller Installer
 
-#define MyAppName "ArtNetController"
-#define MyAppVersion "2.0.0"
-#define MyAppPublisher "DMX Master"
+#define MyAppName "DMX Master LTS"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "Trương Công Định"
 #define MyAppURL "https://github.com/truongcongdinh97/DMX-Master"
-#define MyAppExeName "ArtNetController.exe"
+#define MyAppExeName "DMXMaster-LTS-1.0.0.exe"
+#define MyAppDescription "Professional Art-Net Lighting Controller"
 
 [Setup]
 ; Application info
-AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
+AppId={{DMX-MASTER-LTS-1000-2025-11-05}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -17,15 +18,17 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
+AppCopyright=Copyright (C) 2025 {#MyAppPublisher}
 
 ; Installation directories
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+AllowNoIcons=yes
 
 ; Output
-OutputDir=.
-OutputBaseFilename=ArtNetController-{#MyAppVersion}-Setup
+OutputDir=installer_output
+OutputBaseFilename=DMX-Master-LTS-1.0.0-Setup
 SetupIconFile=assets\DMXMaster.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -37,12 +40,20 @@ PrivilegesRequiredOverridesAllowed=dialog
 ; UI
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; WizardImageFile=assets\installer\wizard-image.bmp
+; WizardSmallImageFile=assets\installer\wizard-small.bmp
 
 ; Version info
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany={#MyAppPublisher}
-VersionInfoDescription={#MyAppName} Installer
+VersionInfoDescription={#MyAppDescription} Installer
 VersionInfoCopyright=Copyright (C) 2025 {#MyAppPublisher}
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
+
+; License and info
+LicenseFile=LICENSE.txt
+; InfoAfterFile=INSTALLATION_INFO.txt
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -52,18 +63,31 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 
 [Files]
-; Main executable and all dependencies
-Source: "dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Config file template (don't overwrite if exists)
-; Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+; Main executable
+Source: "dist\DMXMaster-LTS-1.0.0.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+; Configuration and data directories
+Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
+Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Documentation
+Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Requirements and source (optional - for advanced users)
+Source: "requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Start Menu
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Comment: "{#MyAppDescription}"
+Name: "{group}\{#MyAppName} Documentation"; Filename: "{app}\docs\INDEX.md"; Comment: "User Guide and Documentation"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 ; Desktop icon (if selected)
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Comment: "{#MyAppDescription}"; Tasks: desktopicon
 
 ; Quick Launch icon (if selected)
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
@@ -72,37 +96,59 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 ; Option to launch after installation
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
+; Option to view documentation
+Filename: "{app}\README.md"; Description: "View README and Getting Started Guide"; Flags: postinstall skipifsilent shellexec unchecked
+
 [UninstallDelete]
-; Clean up user data on uninstall (optional - commented out to preserve user data)
-; Type: filesandordirs; Name: "{app}\logs"
-; Type: filesandordirs; Name: "{app}\config_backups"
-; Type: filesandordirs; Name: "{app}\shows"
-; Type: files; Name: "{app}\config.json"
+; Clean up logs on uninstall (preserve user shows and config)
+Type: filesandordirs; Name: "{app}\logs"
+Type: files; Name: "{app}\*.log"
 
 [Code]
-{ Custom Pascal Script for advanced features }
+{ Custom installation logic }
 
-// Check if .NET Framework is installed (if needed)
-// function IsDotNetInstalled: Boolean;
-// begin
-//   Result := RegKeyExists(HKLM, 'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full');
-// end;
+// Check Windows version
+function InitializeSetup(): Boolean;
+begin
+  // Require Windows 10 or later
+  if not (GetWindowsVersion >= $0A000000) then
+  begin
+    MsgBox('DMX Master LTS requires Windows 10 or later.', mbError, MB_OK);
+    Result := False;
+  end
+  else
+    Result := True;
+end;
 
-// Custom page or checks can be added here
+// Post-installation tasks
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    // Post-installation tasks
-    // Example: Create shortcuts, register protocols, etc.
+    // Create default show directory
+    CreateDir(ExpandConstant('{app}\data\shows'));
+    CreateDir(ExpandConstant('{app}\data\recordings'));
+    CreateDir(ExpandConstant('{app}\logs'));
+    
+    // Set permissions for data directory
+    // This allows the application to write files without admin rights
   end;
 end;
 
+// Pre-uninstall cleanup
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usPostUninstall then
+  if CurUninstallStep = usUninstall then
   begin
-    // Post-uninstallation cleanup
-    // Example: Remove registry entries, etc.
+    // Ask user if they want to keep their shows and settings
+    if MsgBox('Do you want to keep your show files and settings?' + #13#10 + 
+              'Choose "No" to completely remove all data.' + #13#10 +
+              'Choose "Yes" to preserve your shows and configuration.', 
+              mbConfirmation, MB_YESNO) = IDNO then
+    begin
+      // Remove user data
+      DelTree(ExpandConstant('{app}\data'), True, True, True);
+      DelTree(ExpandConstant('{app}\config'), True, True, True);
+    end;
   end;
 end;
