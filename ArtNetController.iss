@@ -1,16 +1,16 @@
-; Inno Setup Script for DMX Master LTS 1.0.0
-; Professional Art-Net Lighting Controller Installer
+; Inno Setup Script for DMX Master LTS 1.1.0
+; Professional Art-Net Lighting Controller Installer with Timecode Sync Recording
 
 #define MyAppName "DMX Master LTS"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Trương Công Định"
 #define MyAppURL "https://github.com/truongcongdinh97/DMX-Master"
-#define MyAppExeName "DMXMaster-LTS-1.0.0.exe"
-#define MyAppDescription "Professional Art-Net Lighting Controller"
+#define MyAppExeName "DMXMaster-LTS-1.1.0-Timecode.exe"
+#define MyAppDescription "Professional Art-Net Lighting Controller with Timecode Sync Recording"
 
 [Setup]
 ; Application info
-AppId={{DMX-MASTER-LTS-1000-2025-11-05}}
+AppId={{DMX-MASTER-LTS-1100-2025-11-05}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -28,7 +28,7 @@ AllowNoIcons=yes
 
 ; Output
 OutputDir=installer_output
-OutputBaseFilename=DMX-Master-LTS-1.0.0-Setup
+OutputBaseFilename=DMX-Master-LTS-1.1.0-Setup
 SetupIconFile=assets\DMXMaster.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -64,7 +64,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; Main executable
-Source: "dist\DMXMaster-LTS-1.0.0.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\DMXMaster-LTS-1.1.0-Timecode.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Configuration and data directories
 Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist

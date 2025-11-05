@@ -52,6 +52,10 @@ hidden_imports = [
     'src.show.dmx_recorder',
     'src.show.manager',
     'src.webserver.server',
+    # V2.0 Timecode Sync Recording
+    'src.system.timecode_receiver',
+    # Optional MTC support (may fail if python-rtmidi not installed)
+    # 'rtmidi',
 ]
 
 a = Analysis(
