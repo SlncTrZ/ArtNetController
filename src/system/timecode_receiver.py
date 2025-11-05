@@ -11,7 +11,7 @@ import threading
 import socket
 import struct
 from typing import Dict, Callable, Optional, Any
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QCoreApplication
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -85,16 +85,26 @@ class TimecodeReceiver(QObject):
     def _emit_timecode(self, timecode_data: TimecodeData):
         """Emit timecode signal safely"""
         self.last_timecode_time = time.time()
-        
-        # Emit Qt signal (thread-safe)
-        self.timecode_received.emit(timecode_data.to_dict())
-        
-        # Also call callback directly if set
-        if self.callback_func:
-            try:
-                self.callback_func(timecode_data.to_dict())
-            except Exception as e:
-                logger.error(f"Error in timecode callback: {e}")
+        payload = timecode_data.to_dict()
+
+        # Debug: show exact payload being emitted
+        logger.debug(f"🔔 Emitting timecode payload: {payload}")
+
+        # Emit Qt signal (thread-safe) - GUI consumers should use this
+        try:
+            self.timecode_received.emit(payload)
+        except Exception as e:
+            logger.error(f"Error emitting timecode signal: {e}")
+
+        # If a direct callback is set and there is NO Qt application instance
+        # (i.e., running as a non-GUI test script), call the callback directly.
+        # This avoids calling GUI callbacks from a non-main thread which can
+        # crash the application.
+        try:
+            if self.callback_func and QCoreApplication.instance() is None:
+                self.callback_func(payload)
+        except Exception as e:
+            logger.error(f"Error in timecode callback: {e}")
     
     def _check_timeout(self):
         """Check if timecode has timed out"""
@@ -122,8 +132,10 @@ class MTCReceiver(TimecodeReceiver):
             # Try to import python-rtmidi
             try:
                 import rtmidi
+                logger.info("✅ python-rtmidi library found")
             except ImportError:
                 logger.error("❌ python-rtmidi not installed. Install with: pip install python-rtmidi")
+                logger.error("🔧 For Depence integration, MTC requires python-rtmidi library")
                 self.status_changed.emit("ERROR: python-rtmidi not installed")
                 return False
             
@@ -131,9 +143,14 @@ class MTCReceiver(TimecodeReceiver):
             self.midi_input = rtmidi.MidiIn()
             available_ports = self.midi_input.get_ports()
             
+            logger.info(f"🎹 Found {len(available_ports)} MIDI devices:")
+            for i, port in enumerate(available_ports):
+                logger.info(f"   {i}: {port}")
+            
             if not available_ports:
                 logger.warning("⚠️ No MIDI devices found for MTC")
-                self.status_changed.emit("No MIDI devices found")
+                logger.warning("🔧 For Depence: Ensure MIDI interface is connected and drivers installed")
+                self.status_changed.emit("No MIDI devices found - check MIDI interface")
                 return False
             
             # Auto-select first available port or find specific device
@@ -145,6 +162,7 @@ class MTCReceiver(TimecodeReceiver):
                         break
             
             selected_port = available_ports[port_index]
+            logger.info(f"🎵 Opening MIDI port: {selected_port}")
             self.midi_input.open_port(port_index)
             self.midi_input.set_callback(self._on_midi_message)
             
@@ -310,6 +328,172 @@ class NetTimecodeReceiver(TimecodeReceiver):
                 pass
             self.socket = None
 
+class ArtNet4TimecodeReceiver(TimecodeReceiver):
+    """Art-Net 4 Timecode Receiver - For Depence and other professional software"""
+    
+    def __init__(self, port: int = 6454, artnet_controller=None):
+        super().__init__()
+        self.port = port
+        self.socket = None
+        self.receive_thread = None
+        self.artnet_controller = artnet_controller  # Share socket with main controller
+        self.use_shared_socket = artnet_controller is not None
+        
+    def start(self) -> bool:
+        """Start Art-Net 4 Timecode receiver"""
+        try:
+            if self.use_shared_socket and self.artnet_controller:
+                # Use shared socket approach - register callback with main Art-Net controller
+                logger.info("🎭 Using shared Art-Net socket for timecode reception")
+                if hasattr(self.artnet_controller, 'register_timecode_callback'):
+                    self.artnet_controller.register_timecode_callback(self._handle_shared_packet)
+                    self.is_running = True
+                    logger.info("🎭 Art-Net 4 Timecode receiver registered with main controller")
+                    self.status_changed.emit("Art-Net 4 Timecode using shared socket")
+                    return True
+                else:
+                    logger.warning("⚠️ Main Art-Net controller doesn't support timecode callbacks")
+                    # Fall back to separate socket
+                    self.use_shared_socket = False
+            
+            if not self.use_shared_socket:
+                # Create separate UDP socket for Art-Net (different port)
+                timecode_port = self.port + 1  # Use 6455 to avoid conflict
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                
+                # Try to bind to alternative port if main port is taken
+                try:
+                    self.socket.bind(('0.0.0.0', timecode_port))
+                    logger.info(f"🎭 Art-Net 4 Timecode receiver started on port {timecode_port} (alternate)")
+                except OSError:
+                    # Try multicast approach for receiving Art-Net
+                    self.socket.bind(('', timecode_port + 1))
+                    logger.info(f"🎭 Art-Net 4 Timecode receiver started on port {timecode_port + 1}")
+                
+                # Start receive thread
+                self.is_running = True
+                self.receive_thread = threading.Thread(target=self._receive_artnet_packets, daemon=True)
+                self.receive_thread.start()
+                
+                self.status_changed.emit(f"Art-Net 4 Timecode listening on port {timecode_port}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to start Art-Net 4 Timecode receiver: {e}")
+            logger.error("💡 Suggestion: Check if another Art-Net application is running")
+            self.status_changed.emit(f"Error: {str(e)}")
+            return False
+    
+    def _handle_shared_packet(self, data: bytes, addr: tuple):
+        """Handle packet from shared Art-Net controller"""
+        self._process_artnet_packet(data, addr)
+    
+    def _receive_artnet_packets(self):
+        """Receive and process Art-Net packets"""
+        while self.is_running:
+            try:
+                data, addr = self.socket.recvfrom(1024)
+                self._process_artnet_packet(data, addr)
+                
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self.is_running:
+                    logger.error(f"Art-Net receive error: {e}")
+                break
+    
+    def _process_artnet_packet(self, data: bytes, addr: tuple):
+        """Process Art-Net packet for timecode"""
+        try:
+            # Art-Net packet starts with "Art-Net\0"
+            if len(data) < 12 or data[:8] != b'Art-Net\0':
+                return
+            
+            # Get OpCode (little endian)
+            opcode = struct.unpack('<H', data[8:10])[0]
+            
+            # Art-Net 4 Timecode OpCode is 0x9700
+            if opcode == 0x9700:  # ArtTimeCode
+                self._process_timecode_packet(data, addr)
+                
+        except Exception as e:
+            logger.error(f"Error processing Art-Net packet: {e}")
+    
+    def _process_timecode_packet(self, data: bytes, addr: tuple):
+        """Process Art-Net 4 Timecode packet"""
+        try:
+            # Some devices (e.g. Depence) send a 19-byte timecode packet.
+            # Accept >=19 bytes to be compatible with those implementations.
+            if len(data) < 19:
+                logger.debug(f"Art-Net TC packet too short ({len(data)} bytes) from {addr[0]}")
+                return
+            
+            # Art-Net 4 Timecode packet structure:
+            # 0-7: "Art-Net\0"
+            # 8-9: OpCode (0x9700)
+            # 10-11: Protocol version (0x0e00)
+            # 12: Filler
+            # 13: Filler  
+            # 14: Frames
+            # 15: Seconds
+            # 16: Minutes
+            # 17: Hours
+            # 18: Type (frame rate)
+            
+            frames = data[14]
+            seconds = data[15]
+            minutes = data[16]
+            hours = data[17]
+            timecode_type = data[18]
+            
+            # Decode frame rate from type
+            fps_map = {
+                0: 24.0,    # 24fps
+                1: 25.0,    # 25fps  
+                2: 29.97,   # 29.97fps drop frame
+                3: 30.0,    # 30fps
+            }
+            fps = fps_map.get(timecode_type, 25.0)
+            
+            # Validate timecode values
+            if hours < 24 and minutes < 60 and seconds < 60 and frames < fps:
+                timecode_data = TimecodeData(
+                    hours=hours,
+                    minutes=minutes,
+                    seconds=seconds,
+                    frames=frames,
+                    fps=fps,
+                    source=f"Art-Net 4 TC ({addr[0]})",
+                    timestamp=time.time()
+                )
+                
+                self._emit_timecode(timecode_data)
+                logger.info(f"🎭 Art-Net 4 Timecode: {hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d} @ {fps}fps")
+                logger.info(f"🔔 Emitting timecode to {len([self.callback_func] if self.callback_func else [])} callback(s)")
+                
+        except Exception as e:
+            logger.error(f"Error processing Art-Net timecode: {e}")
+    
+    def stop(self):
+        """Stop Art-Net 4 Timecode receiver"""
+        super().stop()
+        
+        # Unregister callback from shared controller
+        if self.use_shared_socket and self.artnet_controller:
+            if hasattr(self.artnet_controller, 'unregister_timecode_callback'):
+                self.artnet_controller.unregister_timecode_callback(self._handle_shared_packet)
+                logger.info("🚫 Timecode callback unregistered from Art-Net controller")
+        
+        if self.socket:
+            try:
+                self.socket.close()
+            except:
+                pass
+            self.socket = None
+
 class LTCReceiver(TimecodeReceiver):
     """LTC (Linear Time Code) Receiver - Audio-based timecode"""
     
@@ -340,6 +524,12 @@ class TimecodeManager:
         """Create Net-timecode receiver"""
         receiver = NetTimecodeReceiver(port)
         self.receivers["net-timecode"] = receiver
+        return receiver
+    
+    def create_artnet4_timecode_receiver(self, port: int = 6454, artnet_controller=None) -> ArtNet4TimecodeReceiver:
+        """Create Art-Net 4 Timecode receiver for Depence compatibility"""
+        receiver = ArtNet4TimecodeReceiver(port, artnet_controller)
+        self.receivers["artnet4-timecode"] = receiver
         return receiver
     
     def create_ltc_receiver(self, audio_device: str = "auto") -> LTCReceiver:

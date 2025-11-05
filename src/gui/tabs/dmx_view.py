@@ -116,9 +116,16 @@ class DMXViewTab(QWidget):
         control_layout.addWidget(QLabel("Universe:"))
         self.universe_combo = QComboBox()
         self.universe_combo.setEditable(True)  # Allow typing universe number
-        self.universe_combo.addItems([str(i) for i in range(16)])  # Default 0-15
+        # Load max universes from unified system config (admin-adjustable)
+        try:
+            from system.config_manager import get_config_manager
+            max_universes = int(get_config_manager().get('universes.max_universes', 32))
+        except Exception:
+            max_universes = 32
+        max_universes = max(1, min(512, max_universes))
+        self.universe_combo.addItems([str(i) for i in range(max_universes)])
         self.universe_combo.currentTextChanged.connect(self.on_universe_changed)
-        self.universe_combo.setToolTip("Select or type universe number (0-32767)")
+        self.universe_combo.setToolTip(f"Select universe (0-{max_universes-1})")
         control_layout.addWidget(self.universe_combo)
         
         control_layout.addWidget(QLabel(" | "))
@@ -403,7 +410,7 @@ class DMXViewTab(QWidget):
         import time
         timestamp = time.time()
         
-        logger.info(f"🎯 DMX View received data: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
+        logger.debug(f"🎯 DMX View received data: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
         
         # ALWAYS store data (no rate limiting for data storage)
         self.received_data[universe] = (dmx_data, source_ip, timestamp)
@@ -415,28 +422,12 @@ class DMXViewTab(QWidget):
             logger.info(f"➕ Added universe {universe} to combo box")
         
         if universe == self.current_universe:
-            logger.info(f"🎯 Processing universe {universe} (current: {self.current_universe})")
+            logger.debug(f"🎯 Processing universe {universe} (current: {self.current_universe})")
             # Validate and clip channel count to 512 max
             dmx_data = dmx_data[:512] if len(dmx_data) > 512 else dmx_data
             self.dmx_data = dmx_data
             
-            # RATE LIMITED UI UPDATE (prevent UI freeze)
-            current_time = timestamp
-            if current_time - self.last_ui_update >= self.update_interval:
-                logger.info(f"🔄 Updating UI display for universe {universe}")
-                self.data_source_label.setText(f"Source: {source_ip}")
-                self.update_display()
-                self.last_ui_update = current_time
-                self.pending_update = False
-                logger.info(f"✅ UI updated successfully")
-            else:
-                # Mark that we have a pending update
-                self.pending_update = True
-                logger.info(f"⏳ UI update delayed (rate limited)")
-        else:
-            logger.info(f"⏭️ Skipping universe {universe} (current: {self.current_universe})")
-            
-            # Update rate calculation ONLY for current universe
+            # Update rate calculation for current universe
             self.update_count += 1
             
             # Reset timeout flag when receiving new data
@@ -444,9 +435,25 @@ class DMXViewTab(QWidget):
 
             if time.time() - self.last_update_time >= 1.0:
                 self.update_rate = self.update_count
-                logger.debug(f"DMX rate calculation: {self.update_count} packets in 1 second = {self.update_rate} Hz")
+                logger.debug(f"DMX rate: {self.update_count} packets in 1 second = {self.update_rate} Hz")
                 self.update_count = 0
                 self.last_update_time = time.time()
+            
+            # RATE LIMITED UI UPDATE (prevent UI freeze)
+            current_time = timestamp
+            if current_time - self.last_ui_update >= self.update_interval:
+                logger.debug(f"🔄 Updating UI display for universe {universe}")
+                self.data_source_label.setText(f"Source: {source_ip}")
+                self.update_display()
+                self.last_ui_update = current_time
+                self.pending_update = False
+                logger.debug(f"✅ UI updated successfully")
+            else:
+                # Mark that we have a pending update
+                self.pending_update = True
+                logger.debug(f"⏳ UI update delayed (rate limited)")
+        else:
+            logger.debug(f"⏭️ Skipping universe {universe} (not current: {self.current_universe})")
     
     def update_statistics(self):
         """Update statistics"""

@@ -161,8 +161,9 @@ class MainWindow(QMainWindow):
         
         # Record Tab (only for admin users with valid license)
         self.record_tab = RecordTab(self.config_manager, self.artnet_controller)
-        if self._is_admin and self._is_licensed_admin:
-            self.tab_widget.addTab(self.record_tab, "Record")
+        # TEMP: Always show Record tab for testing timecode
+     #   self.tab_widget.addTab(self.record_tab, "Record")
+     #   logger.info("📼 Record tab added (TEMP: admin check bypassed for testing)")
     
     def setup_menu(self):
         """Setup menu bar"""
@@ -346,6 +347,57 @@ class MainWindow(QMainWindow):
         restart_action.setShortcut(QKeySequence("Ctrl+R"))
         restart_action.triggered.connect(self.restart_app)
         help_menu.addAction(restart_action)
+
+        # Hidden admin shortcut: Adjust max universes (Ctrl+Alt+U)
+        # Not shown in menus; requires admin login + valid license
+        try:
+            from PyQt6.QtGui import QShortcut
+            shortcut = QShortcut(QKeySequence("Ctrl+Alt+U"), self)
+            shortcut.activated.connect(self._admin_set_max_universes)
+        except Exception:
+            pass
+
+    def _admin_set_max_universes(self):
+        """Hidden admin action to set max universes (requires admin + license)"""
+        if not (self._is_admin and self._is_licensed_admin):
+            QMessageBox.warning(self, "Access Denied", "Admin login and valid license required.")
+            return
+
+        # Read current from unified system config
+        try:
+            from system.config_manager import get_config_manager
+            sys_cfg = get_config_manager()
+            current = int(sys_cfg.get('universes.max_universes', 32))
+        except Exception:
+            sys_cfg = None
+            current = 32
+
+        # Ask for new value
+        new_value, ok = QInputDialog.getInt(
+            self,
+            "Set Max Art-Net Universes",
+            "Enter max universes (1-512):",
+            value=current,
+            min=1,
+            max=512
+        )
+        if not ok:
+            return
+
+        # Save to unified system config
+        try:
+            if sys_cfg is None:
+                from system.config_manager import get_config_manager as _get
+                sys_cfg = _get()
+            sys_cfg.set('universes.max_universes', int(new_value))
+            sys_cfg.save()
+            QMessageBox.information(
+                self,
+                "Max Universes Updated",
+                "Change saved. Please restart the application to apply to all modules (Record/Playback/PollReply)."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save setting: {e}")
     
     def get_app_data_dir(self):
         """Get application data directory (consistent across dev/build)"""
@@ -512,6 +564,11 @@ class MainWindow(QMainWindow):
             self.dmx_timer.start(1000 // refresh_rate)  # Convert Hz to ms
             
             logger.info("Art-Net started successfully")
+            
+            # Notify Record tab that Art-Net controller is now available
+            if hasattr(self, 'record_tab') and self.record_tab:
+                logger.info("📼 Updating Record tab with Art-Net controller...")
+                self.record_tab.set_artnet_controller(self.artnet_controller)
         else:
             self.status_bar.showMessage("Failed to start Art-Net")
             logger.error("Failed to start Art-Net")

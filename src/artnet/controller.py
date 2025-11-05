@@ -98,25 +98,35 @@ class ArtNetDMX(ArtNetPacket):
     
     @classmethod
     def unpack_dmx(cls, payload: bytes):
-        """Unpack DMX data từ payload"""
-        if len(payload) < 6:
+        """Unpack DMX data từ payload (after Art-Net header + opcode)"""
+        if len(payload) < 8:  # Need at least version + sequence + physical + universe + length
             return None
             
-        # Art-Net DMX packet format:
-        # Byte 0: Sequence
-        # Byte 1: Physical
-        # Byte 2-3: Universe (Little Endian)
-        # Byte 4-5: Length (Big Endian) - số bytes DMX data
-        sequence = payload[0]
-        physical = payload[1]
-        universe = struct.unpack('<H', payload[2:4])[0]
-        length = struct.unpack('>H', payload[4:6])[0]  # Big Endian!
-        dmx_data = payload[6:6+length]
+        # Art-Net DMX payload format (after header + opcode):
+        # Byte 0-1: Version (Little Endian)
+        # Byte 2: Sequence  
+        # Byte 3: Physical
+        # Byte 4-5: Universe (Little Endian)
+        # Byte 6-7: Length (Big Endian) - số bytes DMX data
+        # Byte 8+: DMX data
         
-        # Debug: Log raw bytes
-        logger.debug(f"Universe bytes: {payload[2]:02x} {payload[3]:02x} -> {universe}")
+        version = struct.unpack('<H', payload[0:2])[0]
+        sequence = payload[2]
+        physical = payload[3]
+        universe = struct.unpack('<H', payload[4:6])[0]
+        length = struct.unpack('>H', payload[6:8])[0]  # Big Endian!
+        
+        # Extract DMX data
+        if len(payload) >= 8 + length:
+            dmx_data = payload[8:8+length]
+        else:
+            dmx_data = payload[8:]  # Take what we have
+        
+        # Debug: Log parsing details
+        logger.debug(f"DMX Parse: version=0x{version:04x}, seq={sequence}, phys={physical}, uni={universe}, len={length}, data_size={len(dmx_data)}")
         
         return {
+            'version': version,
             'sequence': sequence,
             'physical': physical,
             'universe': universe,
@@ -151,6 +161,9 @@ class ArtNetController:
         
         # V2.0: Output pause control (for recording safety)
         self.output_paused = False
+        
+        # V2.0: Timecode callback support
+        self.timecode_callbacks = []
 
         # Thread locks
         self.nodes_lock = threading.Lock()
@@ -197,6 +210,21 @@ class ArtNetController:
         """Resume DMX output (V2.0)"""
         self.output_paused = False
         logger.info("▶️  Art-Net output RESUMED")
+    
+    def register_timecode_callback(self, callback_func: Callable):
+        """Register callback for timecode packets (V2.0)"""
+        if callback_func not in self.timecode_callbacks:
+            self.timecode_callbacks.append(callback_func)
+            logger.info(f"🎵 Timecode callback registered with Art-Net controller (total: {len(self.timecode_callbacks)})")
+            logger.info(f"🔍 Registered callback: {callback_func}")
+        else:
+            logger.warning(f"⚠️  Callback already in list: {callback_func}")
+    
+    def unregister_timecode_callback(self, callback_func: Callable):
+        """Unregister timecode callback (V2.0)"""
+        if callback_func in self.timecode_callbacks:
+            self.timecode_callbacks.remove(callback_func)
+            logger.info("🚫 Timecode callback unregistered from Art-Net controller")
 
     def stop(self):
         """Dừng Art-Net controller"""
@@ -363,7 +391,7 @@ class ArtNetController:
         while self.running:
             try:
                 data, addr = self.socket.recvfrom(4096)
-                logger.info(f"RX from {addr[0]}:{addr[1]}, size: {len(data)} bytes")
+                logger.debug(f"RX from {addr[0]}:{addr[1]}, size: {len(data)} bytes")
                 self._handle_packet(data, addr)
                 
             except socket.timeout:
@@ -385,9 +413,11 @@ class ArtNetController:
         opcode = packet['opcode']
         payload = packet['payload']
         
-        # DEBUG: Log packet types
+        # DEBUG: Log ALL opcodes to diagnose timecode issue
+        logger.debug(f"🔍 Received OpCode: 0x{opcode:04X} from {addr[0]}")
+        
+        # DEBUG: Log packet types (DMX logging moved inside handler for optimization)
         if opcode == ArtNetPacket.ARTNET_DMX:
-            logger.info(f"📦 DMX packet received from {addr[0]}")
             self._handle_dmx_packet(payload, addr)
         elif opcode == ArtNetPacket.ARTNET_POLL_REPLY:
             logger.info(f"📦 Poll Reply packet received from {addr[0]}")
@@ -395,11 +425,39 @@ class ArtNetController:
         elif opcode == ArtNetPacket.ARTNET_POLL:
             logger.info(f"📦 Poll packet received from {addr[0]}")
             self._handle_poll(payload, addr)
+        elif opcode == ArtNetPacket.ARTNET_TIME_CODE:
+            logger.info(f"🎵 Timecode packet (OpCode 0x{opcode:04X}) received from {addr[0]}")
+            self._handle_timecode_packet(data, addr)  # Pass full data for timecode processing
         else:
             logger.info(f"📦 Unknown packet type 0x{opcode:04X} from {addr[0]}")
     
+    def _handle_timecode_packet(self, data: bytes, addr: tuple):
+        """Handle Art-Net 4 Timecode packet (V2.0)"""
+        try:
+            # Forward to registered timecode callbacks
+            if len(self.timecode_callbacks) == 0:
+                # Only log warning once every 100 packets to reduce spam
+                self._timecode_warning_count = getattr(self, '_timecode_warning_count', 0) + 1
+                if self._timecode_warning_count == 1:
+                    logger.warning("⚠️ Timecode packet received but NO callbacks registered!")
+                    logger.warning("💡 Enable 'Wait for Timecode Signal' in Record tab and press START RECORDING")
+                elif self._timecode_warning_count % 100 == 0:
+                    logger.debug(f"🎵 Timecode packets received: {self._timecode_warning_count} (no callback registered)")
+                return
+            
+            for callback in self.timecode_callbacks:
+                try:
+                    callback(data, addr)
+                except Exception as e:
+                    logger.error(f"Error in timecode callback: {e}")
+            
+            logger.debug(f"🎵 Timecode packet forwarded to {len(self.timecode_callbacks)} callback(s)")
+            
+        except Exception as e:
+            logger.error(f"Error handling timecode packet: {e}")
+    
     def _handle_dmx_packet(self, payload: bytes, addr: tuple):
-        """Xử lý DMX packet"""
+        """Xử lý DMX packet với optimization để giảm load"""
         logger.debug(f"Processing DMX packet from {addr[0]}")
         dmx_info = ArtNetDMX.unpack_dmx(payload)
         if not dmx_info:
@@ -414,29 +472,56 @@ class ArtNetController:
             logger.warning(f"DMX data truncated: {len(dmx_data)} → 512 channels from {addr[0]}")
             dmx_data = dmx_data[:512]
         
-        # REDUCED LOGGING: Only log every 10th packet to prevent spam
-        self._dmx_packet_count = getattr(self, '_dmx_packet_count', 0) + 1
-        if self._dmx_packet_count % 10 == 0:
-            logger.info(f"Received DMX data: Universe {universe}, {len(dmx_data)} channels from {addr[0]} (packet #{self._dmx_packet_count})")
+        # CRITICAL: Make a copy of dmx_data to prevent reference issues
+        dmx_data_copy = bytes(dmx_data)
         
-        # Update local state (LUÔN LUÔN update để DMX View hiển thị)
+        # OPTIMIZATION 1: Check if data actually changed
+        data_changed = False
         with self.dmx_lock:
-            self.dmx_universe_data[universe] = dmx_data
+            previous_data = self.dmx_universe_data.get(universe)
+            
+            # Check if data is identical to previous
+            if previous_data is not None and previous_data == dmx_data_copy:
+                # Data unchanged - skip callback to reduce CPU load
+                logger.debug(f"⏩ Skipping Universe {universe} - data unchanged")
+                return
+            
+            # OPTIMIZATION 2: Check if all channels are zero (blackout)
+            # Only check first time or periodically to save CPU
+            is_all_zero = all(b == 0 for b in dmx_data_copy)
+            
+            if is_all_zero:
+                # If previous was also all zero, skip callback
+                if previous_data is not None and all(b == 0 for b in previous_data):
+                    logger.debug(f"⏩ Skipping Universe {universe} - still all zeros")
+                    return
+                else:
+                    # First time going to blackout - update once
+                    logger.info(f"🌑 Universe {universe} entered blackout (all zeros)")
+                    data_changed = True
+            else:
+                # Data changed and not all zero
+                data_changed = True
+                non_zero = sum(1 for b in dmx_data_copy if b > 0)
+                logger.info(f"📦 DMX U{universe}: {len(dmx_data_copy)}ch, {non_zero} active from {addr[0]}")
+            
+            # Update local state
+            self.dmx_universe_data[universe] = dmx_data_copy
         
         # Auto-forward ONLY if enabled and nodes configured
         if self.auto_forward_enabled and self.universe_mapping:
             try:
-                self.send_dmx_with_mapping(universe, dmx_data)
+                self.send_dmx_with_mapping(universe, dmx_data_copy)
                 logger.debug(f"Auto-forwarded Universe {universe} to {len(self.universe_mapping)} nodes")
             except Exception as e:
                 logger.error(f"Error auto-forwarding DMX: {e}")
         
-        # Call callback (LUÔN LUÔN gọi để DMX View update)
+        # Call callback (ONLY when data changed)
         if self.dmx_received_callback:
             try:
-                logger.info(f"🔄 Calling DMX callback for Universe {universe}, {len(dmx_data)} channels")
-                self.dmx_received_callback(universe, dmx_data, addr[0])
-                logger.info(f"✅ DMX callback completed successfully")
+                logger.debug(f"🔄 Calling DMX callback for Universe {universe}, {len(dmx_data_copy)} channels")
+                self.dmx_received_callback(universe, dmx_data_copy, addr[0])
+                logger.debug(f"✅ DMX callback completed")
             except Exception as e:
                 logger.error(f"❌ Error in DMX callback: {e}")
         else:
@@ -579,27 +664,71 @@ class ArtNetController:
         """
         Xử lý Art-Net Poll - Respond với thông tin node
         V2.0: Cho phép các thiết bị khác scan được DMX Master
+        V2.1: Gửi nhiều PollReply packets để hỗ trợ unlimited universes
+        
+        Cơ chế tương thích với Depence/Resolume/MADRIX:
+        - Mỗi PollReply quảng bá 4 universes liên tục qua SwIn
+        - Universe 0-15: SubNet=0, SwIn thay đổi [0-3], [4-7], [8-11], [12-15]
+        - Universe 16-31: SubNet=1, SwIn thay đổi [0-3], [4-7], [8-11], [12-15]
+        - Công thức: Universe = (SubNet << 4) | SwIn
+        
+        Ví dụ:
+        - 8 universes → 2 PollReply: S0/SwIn[0-3], S0/SwIn[4-7]
+        - 16 universes → 4 PollReply: S0/SwIn[0-3,4-7,8-11,12-15]
+        - 32 universes → 8 PollReply: S0(4 replies) + S1(4 replies)
         """
         logger.debug(f"Received Art-Net Poll from {addr[0]}")
         
         try:
-            # Tạo ArtPollReply packet
-            reply = self._create_poll_reply()
+            # Đọc max_universes từ config
+            try:
+                from system.config_manager import get_config_manager
+                max_universes = int(get_config_manager().get('universes.max_universes', 32))
+            except Exception:
+                max_universes = 32
             
-            # Gửi reply về cho requester
-            self.socket.sendto(reply, addr)
-            logger.info(f"Sent ArtPollReply to {addr[0]}")
+            # Tính số PollReply cần gửi (mỗi reply = 4 universes)
+            num_replies = (max_universes + 3) // 4  # Round up division
+            num_replies = min(num_replies, 64)  # Max 64 replies = 256 universes
+            
+            logger.info(f"Sending {num_replies} PollReply packets for {max_universes} universes")
+            
+            # Gửi PollReply cho mỗi block 4 universes
+            for i in range(num_replies):
+                # Tính subnet và SwIn
+                subnet = i // 4  # Mỗi subnet có 4 replies (16 universes)
+                base_universe = i * 4  # Universe bắt đầu của reply này
+                sw_in = [(base_universe + j) % 16 for j in range(4)]  # SwIn trong subnet
+                
+                # Tạo và gửi PollReply
+                reply = self._create_poll_reply(subnet=subnet, sw_in=sw_in)
+                self.socket.sendto(reply, addr)
+                
+                # Calculate actual universe range
+                start_uni = base_universe
+                end_uni = min(start_uni + 3, max_universes - 1)
+                
+                logger.info(f"Sent PollReply #{i+1}/{num_replies}: SubNet={subnet} SwIn={sw_in} → Universe {start_uni}-{end_uni} to {addr[0]}")
             
         except Exception as e:
             logger.error(f"Error sending PollReply: {e}")
     
-    def _create_poll_reply(self) -> bytes:
+    def _create_poll_reply(self, subnet: int = 0, sw_in: list = None) -> bytes:
         """
         Tạo ArtPollReply packet theo Art-Net specification
+        V2.1: Thêm subnet + sw_in parameters để hỗ trợ unlimited universes
+        
+        Args:
+            subnet: SubNet number (0-15), mỗi subnet = 16 universes
+            sw_in: List of 4 universe addresses [0-15] trong subnet này
+                   Ví dụ: [0,1,2,3] hoặc [4,5,6,7] hoặc [8,9,10,11]
         
         Returns:
-            bytes: ArtPollReply packet
+            bytes: ArtPollReply packet (239 bytes)
         """
+        if sw_in is None:
+            sw_in = [0, 1, 2, 3]  # Default: universe 0-3
+        
         # Art-Net header
         packet = bytearray(b"Art-Net\x00")
         
@@ -629,8 +758,8 @@ class ArtNetController:
         # NetSwitch (1 byte) - Network address (default 0)
         packet.append(0)
         
-        # SubSwitch (1 byte) - Subnet address (default 0)
-        packet.append(0)
+        # SubSwitch (1 byte) - Subnet address (0-15) - CRITICAL FOR MULTI-SUBNET
+        packet.append(subnet & 0x0F)  # Chỉ lấy 4 bits thấp
         
         # Oem (2 bytes) - OEM code (Big Endian) - 0xFFFF = custom
         packet.extend(struct.pack('>H', 0xFFFF))
@@ -650,54 +779,64 @@ class ArtNetController:
         # EstaMan (2 bytes) - ESTA Manufacturer code (Little Endian) - 0xFFFF = not registered
         packet.extend(struct.pack('<H', 0xFFFF))
         
-        # ShortName (18 bytes) - Null-terminated string
-        short_name = "DMX Master"
+        # ShortName (18 bytes) - Null-terminated string - Thêm universe range
+        # Tính universe range từ subnet và sw_in
+        start_uni = (subnet << 4) | sw_in[0]
+        end_uni = (subnet << 4) | sw_in[3]
+        if start_uni == 0 and end_uni == 3:
+            short_name = "DMX Master"  # Đẹp hơn cho universe đầu tiên
+        else:
+            short_name = f"DMX U{start_uni}-{end_uni}"
         short_name_bytes = short_name.encode('utf-8')[:17]  # Max 17 chars + null
         packet.extend(short_name_bytes)
         packet.extend(b'\x00' * (18 - len(short_name_bytes)))  # Pad với null
         
-        # LongName (64 bytes) - Null-terminated string
-        long_name = "DMX Master Unlimited by TCD"
+        # LongName (64 bytes) - Null-terminated string - Thêm full info
+        long_name = f"DMX Master LTS - Universe {start_uni}-{end_uni}"
         long_name_bytes = long_name.encode('utf-8')[:63]  # Max 63 chars + null
         packet.extend(long_name_bytes)
         packet.extend(b'\x00' * (64 - len(long_name_bytes)))  # Pad với null
         
-        # NodeReport (64 bytes) - Status message
-        node_report = "#0001 [0000] Power On"
+        # NodeReport (64 bytes) - Status message - Thêm universe info
+        node_report = f"#0001 [0000] Ready - U{start_uni}-{end_uni}"
         node_report_bytes = node_report.encode('utf-8')[:63]
         packet.extend(node_report_bytes)
         packet.extend(b'\x00' * (64 - len(node_report_bytes)))
         
         # NumPorts (2 bytes) - Hi/Lo byte
-        # V2.0: Advertise 16 ports (có thể mở rộng lên 512 nếu cần)
-        num_ports = 16
+        # Always advertise 4 ports (legacy Art-Net limit for arrays)
+        # Each reply advertises 4 consecutive universes via SwIn
+        num_ports = 4  # Fixed at 4 (legacy arrays are 4-long)
         packet.append(num_ports >> 8)  # Hi byte
         packet.append(num_ports & 0xFF)  # Lo byte
         
         # PortTypes (4 bytes) - Type of each port
-        # 0x80 = Output from Art-Net, can output DMX
-        for _ in range(4):
-            packet.append(0x80)
-        
-        # GoodInput (4 bytes) - Input status of ports (all zeros = not used)
-        packet.extend(b'\x00' * 4)
-        
-        # GoodOutput (4 bytes) - Output status
-        # Bit 7: Data transmitted
-        # Bit 6: Includes test packets
-        # Bit 5: Includes SIP packets
-        # Bit 4: Includes text packets
-        # Bit 3: Output power on
-        # Bit 2: Merging ArtNet data
-        for _ in range(4):
-            packet.append(0b10001000)  # Data transmitted, output on
-        
-        # SwIn (4 bytes) - Input universe
-        packet.extend(b'\x00' * 4)
-        
-        # SwOut (4 bytes) - Output universe (0-3)
+        # 0x40 = Input to Art-Net (node receives DMX via Art-Net)
+        # All 4 ports are Input-capable
         for i in range(4):
-            packet.append(i)
+            packet.append(0x40)  # All ports are Input
+        
+        # GoodInput (4 bytes) - Input status of ports
+        # Bit3 (0x08) = Input enabled/power on
+        # All 4 ports active
+        good_input = 0x08
+        for i in range(4):
+            packet.append(good_input)
+        
+        # GoodOutput (4 bytes) - Output status (not used for input node but included)
+        # All zeros since we're an input node
+        for _ in range(4):
+            packet.append(0x00)
+        
+        # SwIn (4 bytes) - Input universe low-byte (0-15 trong subnet)
+        # CRITICAL: Sử dụng sw_in parameter thay vì hardcode [0,1,2,3]
+        # Ví dụ: sw_in=[4,5,6,7] cho universe 4-7 trong subnet 0
+        for i in range(4):
+            packet.append(sw_in[i] & 0x0F)  # Chỉ lấy 4 bits thấp
+        
+        # SwOut (4 bytes) - Output universe (not used for input-only node)
+        for i in range(4):
+            packet.append(0x00)
         
         # SwVideo (1 byte) - deprecated
         packet.append(0)
@@ -711,8 +850,8 @@ class ArtNetController:
         # Spare (3 bytes)
         packet.extend(b'\x00' * 3)
         
-        # Style (1 byte) - 0=StNode, 1=StController, 2=StMedia, 3=StRoute, 4=StBackup
-        packet.append(1)  # Controller
+        # Style (1 byte) - 0=StNode (input/output device)
+        packet.append(0)  # StNode
         
         # MAC Address (6 bytes)
         packet.extend(b'\x00' * 6)

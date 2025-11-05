@@ -53,10 +53,10 @@ DEFAULT_CONFIG = {
     
     # Universe configuration
     "universes": {
-        "enabled": [0, 1, 2, 3],
+        "enabled": list(range(32)),  # 0-31, all 32 universes enabled by default
         "output_enabled": True,
         "default_universe": 0,
-        "max_universes": 16
+        "max_universes": 32
     },
     
     # Recording settings

@@ -20,6 +20,14 @@ from src.utils.config import ConfigManager
 def main():
     """Main entry point của ứng dụng"""
 
+    # Ensure logs folder exists in dist (for exe build)
+    logs_path = Path(__file__).parent / "logs"
+    if not logs_path.exists():
+        try:
+            logs_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"[ERROR] Cannot create logs folder: {logs_path} - {e}")
+
     # Setup enhanced logging (V2.0 - with rotation & compression)
     setup_logging()
     logger = logging.getLogger(__name__)
