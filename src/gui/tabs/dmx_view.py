@@ -40,35 +40,43 @@ class ChannelWidget(QLabel):
         self.update_display()
     
     def update_display(self):
-        """Update display"""
-        # Color based on value
+        """Update display with fill effect based on DMX value"""
+        # Calculate fill percentage (0-100%)
+        fill_percentage = (self.value / 255) * 100
+        
+        # Use single blue color for all values
+        fill_color = "#4444ff"  # Bright blue
+        text_color = "#ffffff" if self.value > 0 else "#888888"
+        
+        # Create gradient effect - fill from bottom to top
         if self.value == 0:
-            bg_color = "#2b2b2b"
-            text_color = "#888888"
-        elif self.value < 64:
-            bg_color = "#1a3d1a"  # Dark green
-            text_color = "#ffffff"
-        elif self.value < 128:
-            bg_color = "#3d3d1a"  # Dark yellow
-            text_color = "#ffffff"
-        elif self.value < 192:
-            bg_color = "#3d1a1a"  # Dark red
-            text_color = "#ffffff"
+            # Empty - just border and background
+            self.setStyleSheet(f"""
+                QLabel {{
+                    border: 1px solid #555555;
+                    background-color: #2b2b2b;
+                    color: {text_color};
+                    font-size: 7px;
+                    font-weight: bold;
+                }}
+            """)
         else:
-            bg_color = "#ff4444"  # Bright red
-            text_color = "#ffffff"
+            # Fill effect using linear gradient - single blue color
+            self.setStyleSheet(f"""
+                QLabel {{
+                    border: 1px solid #555555;
+                    background: linear-gradient(to top, 
+                        {fill_color} 0%, 
+                        {fill_color} {fill_percentage}%, 
+                        #2b2b2b {fill_percentage}%, 
+                        #2b2b2b 100%);
+                    color: {text_color};
+                    font-size: 7px;
+                    font-weight: bold;
+                }}
+            """)
         
-        self.setStyleSheet(f"""
-            QLabel {{
-                border: 1px solid #555555;
-                background-color: {bg_color};
-                color: {text_color};
-                font-size: 7px;
-                font-weight: bold;
-            }}
-        """)
-        
-        # Text content - Thu gọn text
+        # Text content - Show channel and value
         self.setText(f"{self.channel}\n{self.value}")
 
 class DMXViewTab(QWidget):

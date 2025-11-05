@@ -2,8 +2,8 @@
 Version information for DMX Master LTS
 """
 
-__version__ = "1.1.0"
-__version_name__ = "DMX Master LTS 1.1.0"
+__version__ = "1.0.1"
+__version_name__ = "DMX Master LTS 1.0.1"
 __build__ = "2025.11.05"
 __author__ = "Trương Công Định"
 __email__ = "truongcongdinh97tcd@gmail.com"
@@ -21,9 +21,10 @@ __features__ = [
     "Web-based Remote Control",
     "Professional Show Management",
     "Rainbow Effects & Automation",
-    "🎵 Timecode Sync Recording (NEW!)",
+    "🎵 Timecode Sync Recording",
     "Depence/GrandMA Integration",
-    "Net-timecode & MTC Support"
+    "Net-timecode & MTC Support",
+    "💙 Enhanced DMX View (Fill UI)"
 ]
 
 def get_version():
