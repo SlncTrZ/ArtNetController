@@ -17,23 +17,23 @@ from PyQt6.QtGui import QAction, QKeySequence
 import hashlib
 
 # Import tabs
-from gui.tabs.show_manager import ShowManagerTab
-from gui.tabs.hardware_manager import HardwareManagerTab  
-from gui.tabs.dmx_view import DMXViewTab
-from gui.tabs.settings import SettingsTab
-from gui.tabs.record import RecordTab
+from src.gui.tabs.show_manager import ShowManagerTab
+from src.gui.tabs.hardware_manager import HardwareManagerTab  
+from src.gui.tabs.dmx_view import DMXViewTab
+from src.gui.tabs.settings import SettingsTab
+from src.gui.tabs.record import RecordTab
 
 # Import components
-from gui.widgets.status_widget import StatusWidget
-from gui.widgets.ip_info_widget import IPInfoWidget
-from artnet.controller import ArtNetController
-from webserver.server import MP3UploadServer
-from show.manager import ShowManager
-from utils.config import ConfigManager
+from src.gui.widgets.status_widget import StatusWidget
+from src.gui.widgets.ip_info_widget import IPInfoWidget
+from src.artnet.controller import ArtNetController
+from src.webserver.server import MP3UploadServer
+from src.show.manager import ShowManager
+from src.utils.config import ConfigManager
 
 # Import version info
 try:
-    from version import __version__, __build__, __author__, __email__, __github_repo__, __update_url__
+    from src.version import __version__, __build__, __author__, __email__, __github_repo__, __update_url__
 except ImportError:
     __version__ = "1.0.0"
     __build__ = "Unknown"
@@ -43,8 +43,8 @@ except ImportError:
     __update_url__ = ""
 
 # Import license manager
-from utils.license import LicenseManager
-from gui.dialogs.license_dialog import LicenseDialog
+from src.utils.license import LicenseManager
+from src.gui.dialogs.license_dialog import LicenseDialog
 
 logger = logging.getLogger(__name__)
 
