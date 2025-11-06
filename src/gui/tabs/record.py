@@ -18,7 +18,7 @@ from PyQt6.QtGui import QFont
 
 # Import timecode system
 from src.system.timecode_receiver import (
-    TimecodeManager, MTCReceiver, NetTimecodeReceiver, LTCReceiver
+    TimecodeManager, NetTimecodeReceiver, ArtNet4TimecodeReceiver
 )
 
 logger = logging.getLogger(__name__)
@@ -317,10 +317,7 @@ class RecordTab(QWidget):
         self.timecode_source_combo = QComboBox()
         self.timecode_source_combo.addItems([
             "Art-Net 4 Timecode (Depence) - Variable fps",
-            "MTC (MIDI Time Code) - 30fps",
-            "Net-timecode (Network) - 25fps", 
-            "LTC (Linear Time Code) - Audio",
-            "Auto-detect"
+            "Net-timecode (Network) - 25fps"
         ])
         self.timecode_source_combo.setCurrentText("Art-Net 4 Timecode (Depence) - Variable fps")
         self.timecode_source_combo.setEnabled(True)  # Enabled by default since timecode is ON
@@ -329,13 +326,6 @@ class RecordTab(QWidget):
         
         # Timecode settings
         timecode_settings_layout = QHBoxLayout()
-        
-        # MTC MIDI device
-        timecode_settings_layout.addWidget(QLabel("MIDI Device:"))
-        self.midi_device_combo = QComboBox()
-        self.midi_device_combo.addItem("Auto-detect")
-        self.midi_device_combo.setEnabled(False)
-        timecode_settings_layout.addWidget(self.midi_device_combo)
         
         # Net-timecode port
         timecode_settings_layout.addWidget(QLabel("Network Port:"))
@@ -586,15 +576,7 @@ class RecordTab(QWidget):
         
         success_count = 0
         
-        if "MTC" in source or "Auto-detect" in source:
-            mtc_receiver = self.timecode_manager.create_mtc_receiver()
-            mtc_receiver.set_callbacks(self.on_timecode_received, self.on_timecode_stopped)
-            if mtc_receiver.start():
-                self.active_timecode_receivers.append("mtc")
-                success_count += 1
-                logger.info("MTC receiver started successfully")
-        
-        if "Net-timecode" in source or "Auto-detect" in source:
+        if "Net-timecode" in source:
             port = self.timecode_port_spinbox.value()
             net_receiver = self.timecode_manager.create_net_timecode_receiver(port)
             net_receiver.set_callbacks(self.on_timecode_received, self.on_timecode_stopped)
@@ -603,14 +585,14 @@ class RecordTab(QWidget):
                 success_count += 1
                 logger.info(f"Net-timecode receiver started on port {port}")
         
-        if "Art-Net 4" in source or "Auto-detect" in source:
+        if "Art-Net 4" in source:
             logger.info(f"Creating Art-Net 4 Timecode receiver with controller: {self.artnet_controller}")
             artnet4_receiver = self.timecode_manager.create_artnet4_timecode_receiver(
                 artnet_controller=self.artnet_controller  # Pass Art-Net controller for shared socket
             )
-            logger.info(f"🔗 Setting callbacks: on_timecode_received={self.on_timecode_received}")
+            logger.info(f"Setting callbacks: on_timecode_received={self.on_timecode_received}")
             artnet4_receiver.set_callbacks(self.on_timecode_received, self.on_timecode_stopped)
-            logger.info("▶️ Starting Art-Net 4 Timecode receiver...")
+            logger.info("Starting Art-Net 4 Timecode receiver...")
             if artnet4_receiver.start():
                 self.active_timecode_receivers.append("artnet4-timecode")
                 success_count += 1
@@ -619,13 +601,6 @@ class RecordTab(QWidget):
                 logger.warning("Art-Net 4 Timecode receiver failed to start")
                 logger.warning("This may be due to port conflict with main Art-Net controller")
                 logger.warning("For Depence: Ensure timecode is being sent to Art-Net universe")
-        if "LTC" in source:
-            ltc_receiver = self.timecode_manager.create_ltc_receiver()
-            ltc_receiver.set_callbacks(self.on_timecode_received, self.on_timecode_stopped)
-            if ltc_receiver.start():
-                self.active_timecode_receivers.append("ltc")
-                success_count += 1
-                logger.info("🎧 LTC receiver started")
         
         if success_count > 0:
             active_list = ", ".join(self.active_timecode_receivers)
