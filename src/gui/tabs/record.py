@@ -20,6 +20,7 @@ from PyQt6.QtGui import QFont
 from src.system.timecode_receiver import (
     TimecodeManager, NetTimecodeReceiver, ArtNet4TimecodeReceiver
 )
+from src.system.crash_reporter import get_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,10 @@ class RecordTab(QWidget):
         self.recording_start_timecode = None
         self.recording_fps = 30
         self.recording_timecode_source = None
+        
+        # V2.0.2: Timecode start detection state
+        self.last_timecode_value = None  # Last received timecode in seconds
+        self.timecode_running = False     # Whether timecode is currently running
         
         # Initialize timecode system
         self.timecode_manager = TimecodeManager()
@@ -291,22 +296,25 @@ class RecordTab(QWidget):
         # ═══════════════════════════════════════════════════════════════
         
         # Timecode Sync Recording
-        timecode_group = QGroupBox("Timecode Sync Recording")
+        timecode_group = QGroupBox("⏱️ Timecode Sync Recording")
         timecode_layout = QVBoxLayout(timecode_group)
         
         # Enable/Disable Timecode Sync
-        self.timecode_sync_checkbox = QCheckBox("Wait for Timecode Signal Before Recording")
-        self.timecode_sync_checkbox.setChecked(True)  # ON by default (V2.0.1 - for Depence workflow)
+        self.timecode_sync_checkbox = QCheckBox("⏸️ Wait for Timecode Signal Before Recording")
+        self.timecode_sync_checkbox.setChecked(False)  # OFF by default (V2.0.2 - Manual control preferred)
         self.timecode_sync_checkbox.setToolTip(
-            "When enabled, recording will not start immediately after clicking RECORD.\n"
-            "Instead, it will wait for a timecode signal from external software like Depence.\n"
-            "This ensures perfect synchronization between DMX recording and external playback.\n\n"
-            "DEFAULT: ON for professional workflow with Depence/Resolume/MADRIX"
+            "⏸️ TIMECODE SYNC MODE:\n"
+            "When enabled, clicking START RECORDING will NOT begin immediately.\n"
+            "Instead, recording will wait for a timecode signal from Depence/Resolume/MADRIX.\n\n"
+            "📍 USE CASE: Perfect sync with external show software\n"
+            "⚡ MANUAL MODE (unchecked): Record immediately when clicked\n\n"
+            "DEFAULT: OFF for quick manual recording"
         )
         self.timecode_sync_checkbox.setStyleSheet("""
             QCheckBox {
                 font-weight: bold;
                 color: #2196F3;
+                font-size: 11pt;
             }
         """)
         timecode_layout.addWidget(self.timecode_sync_checkbox)
@@ -353,13 +361,8 @@ class RecordTab(QWidget):
         # Connect checkbox to enable/disable controls
         self.timecode_sync_checkbox.toggled.connect(self._on_timecode_sync_toggled)
         
-        # V2.0.1: Start timecode monitoring by default since checkbox is ON
-        try:
-            logger.info("Attempting to start timecode monitoring on init...")
-            self._start_timecode_monitoring()
-            logger.info("Timecode monitoring started successfully on init")
-        except Exception as e:
-            logger.error(f"Failed to start timecode monitoring on init: {e}", exc_info=True)
+        # V2.0.2: Don't start timecode monitoring by default (checkbox is OFF)
+        # User must manually enable timecode sync when needed for Depence workflow
         
         settings_layout.addWidget(timecode_group)
 
@@ -705,13 +708,13 @@ class RecordTab(QWidget):
             if self.disable_output_checkbox.isChecked() and self.artnet_controller:
                 self.artnet_controller.pause_output()
                 logger.info("DMX output PAUSED for recording (safety mode)")
-                self.status_label.setText("Waiting for timecode... (DMX OUTPUT DISABLED)")
+                self.status_label.setText("⏸️ Waiting for timecode from START (00:00:00:00)... (DMX OUTPUT DISABLED)")
                 self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
             else:
-                self.status_label.setText("Waiting for timecode signal...")
+                self.status_label.setText("⏸️ Waiting for timecode from START (00:00:00:00)...")
                 self.status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
             
-            self.timecode_status_label.setText("Timecode: Waiting for signal to start recording...")
+            self.timecode_status_label.setText("⏸️ Waiting: Play show from beginning in Depence/Resolume")
             self.timecode_status_label.setStyleSheet("""
                 QLabel {
                     background-color: #fff3e0;
@@ -724,7 +727,8 @@ class RecordTab(QWidget):
                 }
             """)
             
-            logger.info("Recording armed - waiting for timecode signal to start")
+            logger.info("⏸️ Recording armed - waiting for timecode from START (< 2 seconds)")
+            logger.info("💡 Please play your show from the beginning in Depence/Resolume")
             return
         
         # Normal recording mode (immediate start)
@@ -793,29 +797,120 @@ class RecordTab(QWidget):
             }
         """)
         
-        # If waiting for timecode to start recording, start now
+        # If waiting for timecode to start recording, detect START event
         if getattr(self, 'is_waiting_for_timecode', False):
-            logger.info(f"Timecode received - Starting recording synchronized with {source}")
-            logger.debug(f"Timecode: {timecode_string} at {fps}fps")
-
-            # Store timecode sync info
-            self.recording_start_timecode = timecode_string
-            self.recording_fps = fps
-            self.recording_timecode_source = source
-
-            # Start actual recording - protect with try/except to avoid crash propagation
+            # Parse timecode to seconds for comparison
+            # Format: HH:MM:SS:FF (hours:minutes:seconds:frames)
             try:
-                self._start_recording_immediately()
-            except Exception as e:
-                logger.error(f"Exception while starting recording from timecode: {e}", exc_info=True)
+                tc_parts = timecode_string.split(':')
+                if len(tc_parts) == 4:
+                    hours = int(tc_parts[0])
+                    minutes = int(tc_parts[1])
+                    seconds = int(tc_parts[2])
+                    frames = int(tc_parts[3])
+                    
+                    # Calculate total seconds
+                    current_tc_seconds = hours * 3600 + minutes * 60 + seconds + (frames / fps)
+                    
+                    # Detect START event:
+                    # 1. Timecode jumped backward (reset/restart) - e.g., from 30s → 0s
+                    # 2. Timecode started from near zero after being stopped
+                    # 3. First timecode received and it's near start
+                    
+                    timecode_started = False
+                    start_reason = ""
+                    
+                    if self.last_timecode_value is None:
+                        # First timecode received
+                        if current_tc_seconds < 2.0:
+                            timecode_started = True
+                            start_reason = "First timecode at beginning"
+                            logger.info(f"🎬 FIRST TIMECODE at {timecode_string} ({current_tc_seconds:.2f}s)")
+                        else:
+                            logger.info(f"⏸️ First timecode at {timecode_string} ({current_tc_seconds:.2f}s) - waiting for restart")
+                    else:
+                        # Subsequent timecode - detect reset/restart
+                        time_delta = current_tc_seconds - self.last_timecode_value
+                        
+                        # Case 1: Timecode jumped backward (reset) - e.g., 30s → 0s
+                        if time_delta < -1.0:  # Jumped back more than 1 second
+                            if current_tc_seconds < 2.0:
+                                timecode_started = True
+                                start_reason = f"Timecode RESET detected (from {self.last_timecode_value:.2f}s → {current_tc_seconds:.2f}s)"
+                                logger.info(f"🔄 {start_reason}")
+                            else:
+                                logger.debug(f"Timecode jumped back but not to start: {self.last_timecode_value:.2f}s → {current_tc_seconds:.2f}s")
+                        
+                        # Case 2: Timecode was stopped (no change), now started from beginning
+                        elif abs(time_delta) < 0.1 and current_tc_seconds < 2.0:
+                            # Timecode hasn't changed much and is near start - likely a fresh start
+                            if not self.timecode_running:
+                                timecode_started = True
+                                start_reason = "Timecode started from beginning"
+                                logger.info(f"▶️ {start_reason}")
+                        
+                        # Update running state (timecode is running if it's changing)
+                        self.timecode_running = abs(time_delta) > 0.05
+                    
+                    # Update last timecode value
+                    self.last_timecode_value = current_tc_seconds
+                    
+                    # START RECORDING if timecode start event detected
+                    if timecode_started:
+                        logger.info(f"✅ Timecode START event - Beginning recording at {timecode_string}")
+                        logger.info(f"   Reason: {start_reason}")
+                        logger.debug(f"   Timecode: {timecode_string} at {fps}fps from {source}")
 
-            # Update timecode status to show recording
-            self.timecode_status_label.setText(f"Recording synced: {timecode_string} ({fps}fps) - {source}")
+                        # Store timecode sync info
+                        self.recording_start_timecode = timecode_string
+                        self.recording_fps = fps
+                        self.recording_timecode_source = source
+
+                        # Start actual recording
+                        try:
+                            self._start_recording_immediately()
+                        except Exception as e:
+                            logger.error(f"Exception while starting recording from timecode: {e}", exc_info=True)
+
+                        # Update timecode status to show recording
+                        self.timecode_status_label.setText(f"🔴 Recording synced: {timecode_string} ({fps}fps) - {source}")
+                        self.timecode_status_label.setStyleSheet("""
+                            QLabel {
+                                background-color: #e8f5e8;
+                                border: 2px solid #4caf50;
+                                color: #2e7d32;
+                                padding: 8px;
+                                border-radius: 5px;
+                                font-family: 'Courier New', monospace;
+                                font-weight: bold;
+                            }
+                        """)
+                    else:
+                        # Keep waiting - update status with current timecode
+                        logger.debug(f"⏸️ Timecode at {current_tc_seconds:.2f}s - Waiting for show restart")
+                        self.timecode_status_label.setText(f"⏸️ Waiting for START: {timecode_string} (restart show from beginning)")
+                        self.timecode_status_label.setStyleSheet("""
+                            QLabel {
+                                background-color: #fff3e0;
+                                border: 2px solid #ff9800;
+                                color: #e65100;
+                                padding: 8px;
+                                border-radius: 5px;
+                                font-family: 'Courier New', monospace;
+                                font-weight: bold;
+                            }
+                        """)
+            except Exception as e:
+                logger.error(f"Failed to parse timecode {timecode_string}: {e}")
+                # If parsing fails, don't start recording
     
     def on_timecode_stopped(self):
         """Called when timecode signal stops"""
         logger.warning("Timecode signal lost")
-
+        
+        # Reset timecode tracking state
+        self.last_timecode_value = None
+        self.timecode_running = False
         
         self.timecode_status_label.setText("Timecode: Signal lost!")
         self.timecode_status_label.setStyleSheet("""
@@ -837,6 +932,10 @@ class RecordTab(QWidget):
         """Dừng recording"""
         self.is_recording_active = False
         self.is_waiting_for_timecode = False  # Reset waiting state
+        
+        # V2.0.2: Reset timecode tracking state
+        self.last_timecode_value = None
+        self.timecode_running = False
         
         # V2.0: Resume DMX output if it was paused
         if self.disable_output_checkbox.isChecked() and self.artnet_controller:
@@ -876,6 +975,10 @@ class RecordTab(QWidget):
             # Cancel the waiting for timecode
             self.is_waiting_for_timecode = False
             self.is_recording_active = False
+            
+            # V2.0.2: Reset timecode tracking state
+            self.last_timecode_value = None
+            self.timecode_running = False
             
             # Resume DMX output if it was paused
             if self.disable_output_checkbox.isChecked() and self.artnet_controller:
@@ -948,7 +1051,12 @@ class RecordTab(QWidget):
     
     def record_dmx_data(self, universe: int, dmx_data: bytes):
         """Record DMX data point"""
-        if not self.is_recording_active:
+        # Don't record if not in recording mode (either waiting for timecode or actively recording)
+        if not self.is_recording_active and not self.is_waiting_for_timecode:
+            return
+        
+        # If waiting for timecode, don't record yet - wait for timecode trigger
+        if self.is_waiting_for_timecode:
             return
         
         # Check universe filter
@@ -1025,10 +1133,14 @@ class RecordTab(QWidget):
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         default_name = f"DMX_Recording_{timestamp}"
         
+        # V2.0.2: Use AppData for recordings (not Program Files)
+        recordings_dir = get_user_data_dir() / "data" / "recordings"
+        recordings_dir.mkdir(parents=True, exist_ok=True)
+        
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Recording",
-            str(Path(self.config_manager.get_app_config('recording.path', 'data/recordings')) / default_name),
+            str(recordings_dir / default_name),
             "DMX Recording (*.dmxrec);;All Files (*)"
         )
         
@@ -1126,7 +1238,8 @@ class RecordTab(QWidget):
     
     def refresh_recordings(self):
         """Refresh recordings list"""
-        recording_path = Path(self.config_manager.get_app_config('recording.path', 'data/recordings'))
+        # V2.0.2: Use AppData for recordings (not Program Files)
+        recording_path = get_user_data_dir() / "data" / "recordings"
         
         if not recording_path.exists():
             recording_path.mkdir(parents=True, exist_ok=True)
@@ -1371,8 +1484,9 @@ class RecordTab(QWidget):
     
     def save_show_file(self, show_data):
         """Save show data to shows directory with binary format"""
-        shows_dir = Path("data/shows")
-        shows_dir.mkdir(exist_ok=True)
+        # V2.0.2: Use AppData for shows (not Program Files)
+        shows_dir = get_user_data_dir() / "data" / "shows"
+        shows_dir.mkdir(parents=True, exist_ok=True)
         
         show_name = show_data['metadata']['name'].replace(' ', '_')
         base_path = shows_dir / show_name
@@ -1583,7 +1697,8 @@ class CreateShowDialog(QDialog):
                 "universes": universes
             },
             "playlist": playlist,
-            "scenes": scenes
+            "scenes": scenes,
+            "data": self.recorded_data  # V2.0.2: Include DMX recording data for binary file
         }
     
     def convert_recording_to_scenes(self):
