@@ -3,7 +3,7 @@
 
 #define MyAppName "DMX Master LTS"
 #define MyAppVersion "1.0.6"
-#define MyAppPublisher "Trương Công Định"
+#define MyAppPublisher "Cong Dinh Truong"
 #define MyAppURL "https://github.com/truongcongdinh97/DMX-Master"
 #define MyAppExeName "DMXMaster-LTS-1.0.6.exe"
 #define MyAppDescription "Professional Art-Net Lighting Controller with Enhanced DMX View"

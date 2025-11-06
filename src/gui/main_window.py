@@ -65,6 +65,10 @@ class MainWindow(QMainWindow):
         # Initialize ShowManager with AppData path
         shows_path = self.get_app_data_dir() / "shows"
         shows_path.mkdir(parents=True, exist_ok=True)
+        
+        # Copy default shows from installation directory on first run
+        self._copy_default_shows()
+        
         self.show_manager = ShowManager(str(shows_path))
         
         self.artnet_controller = None
@@ -418,6 +422,45 @@ class MainWindow(QMainWindow):
         data_dir = app_dir / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
+    
+    def _copy_default_shows(self):
+        """Copy default shows from installation directory to AppData on first run"""
+        import shutil
+        
+        # Destination: AppData shows directory
+        dest_shows_dir = self.get_app_data_dir() / "shows"
+        dest_shows_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Source: Installation directory (where the exe is located)
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            install_dir = Path(sys.executable).parent
+        else:
+            # Running from source
+            install_dir = Path(__file__).parent.parent.parent
+        
+        source_shows_dir = install_dir / "data" / "shows"
+        
+        if not source_shows_dir.exists():
+            logger.warning(f"Default shows directory not found: {source_shows_dir}")
+            return
+        
+        # Copy default shows if they don't exist in AppData (only files, not directories)
+        copied_count = 0
+        for show_file in source_shows_dir.glob("Default_*"):
+            if not show_file.is_file():  # Skip directories
+                continue
+            dest_file = dest_shows_dir / show_file.name
+            if not dest_file.exists():
+                try:
+                    shutil.copy2(show_file, dest_file)
+                    logger.info(f"Copied default show: {show_file.name}")
+                    copied_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to copy {show_file.name}: {e}")
+        
+        if copied_count > 0:
+            logger.info(f"Copied {copied_count} default show file(s) to AppData")
     
     def setup_status_bar(self):
         """Setup status bar"""
