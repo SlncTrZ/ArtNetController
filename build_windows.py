@@ -21,8 +21,10 @@ def run_cmd(cmd, desc):
 
 def clean():
     print('[CLEAN] Removing old artifacts...')
-    for d in [DIST_DIR, BUILD_DIR / 'ArtNetController']:
-        if d.exists(): shutil.rmtree(d)
+    for d in [DIST_DIR, BUILD_DIR]:
+        if d.exists(): 
+            shutil.rmtree(d)
+            print(f'  Removed: {d}')
     print('[OK] Clean complete')
 
 def build():

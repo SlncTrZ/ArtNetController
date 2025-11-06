@@ -281,7 +281,7 @@ class CrashReporter:
                 result = json.loads(response.read().decode())
                 issue_url = result.get('html_url', '')
                 
-                logger.info(f"✅ Crash report sent: {issue_url}")
+                logger.info(f"Crash report sent: {issue_url}")
             
         except URLError as e:
             logger.warning(f"Could not send crash report (network error): {e.reason}")

@@ -447,7 +447,7 @@ class DMXViewTab(QWidget):
                 self.update_display()
                 self.last_ui_update = current_time
                 self.pending_update = False
-                logger.debug(f"✅ UI updated successfully")
+                logger.debug(f"UI updated successfully")
             else:
                 # Mark that we have a pending update
                 self.pending_update = True

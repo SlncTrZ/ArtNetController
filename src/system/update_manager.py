@@ -305,7 +305,7 @@ class UpdateManager:
             actual_checksum = hash_func.hexdigest()
             
             if actual_checksum.lower() == expected_checksum.lower():
-                logger.info("✅ Checksum verified")
+                logger.info("Checksum verified")
                 return True
             else:
                 logger.error(f"❌ Checksum mismatch!")
@@ -355,7 +355,7 @@ class UpdateManager:
             with open(backup_path / 'backup_info.json', 'w') as f:
                 json.dump(backup_info, f, indent=2)
             
-            logger.info(f"✅ Backup created: {backup_path}")
+            logger.info(f"Backup created: {backup_path}")
             return backup_path
             
         except Exception as e:
@@ -411,7 +411,7 @@ class UpdateManager:
             )
             
             if result.returncode == 0:
-                logger.info("✅ Installation completed")
+                logger.info("Installation completed")
                 return True
             else:
                 logger.error(f"Installation failed with code: {result.returncode}")
@@ -442,7 +442,7 @@ class UpdateManager:
                 )
                 
                 if result.returncode == 0:
-                    logger.info("✅ Installation completed")
+                    logger.info("Installation completed")
                     return True
                 else:
                     logger.error(f"dpkg failed with code: {result.returncode}")
@@ -494,7 +494,7 @@ class UpdateManager:
                 )
                 
                 if result.returncode == 0:
-                    logger.info("✅ Installation completed")
+                    logger.info("Installation completed")
                     return True
                 else:
                     logger.error(f"Install script failed: {result.returncode}")
@@ -537,7 +537,7 @@ class UpdateManager:
                 shutil.copytree(backup_shows, shows_dir)
                 logger.info("Restored: shows directory")
             
-            logger.info("✅ Rollback completed")
+            logger.info("Rollback completed")
             return True
             
         except Exception as e:

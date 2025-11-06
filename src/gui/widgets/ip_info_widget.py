@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QClipboard
 
-from utils.network import get_artnet_connection_info, get_primary_ip
+from src.utils.network import get_artnet_connection_info, get_primary_ip
 
 logger = logging.getLogger(__name__)
 

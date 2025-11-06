@@ -102,7 +102,7 @@ class HardwareManagerTab(QWidget):
         """Set admin mode and update UI accordingly"""
         self._is_admin = is_admin
         self._update_admin_ui()
-        logger.info(f"🔐 Hardware Manager admin mode: {is_admin}")
+        logger.info(f"Hardware Manager admin mode: {is_admin}")
     
     def _update_admin_ui(self):
         """Update UI based on admin status"""
@@ -438,7 +438,7 @@ class HardwareManagerTab(QWidget):
             self.devices_table.setRowCount(0)
             self.clear_device_details()
             self.device_count_label.setText("Devices: 0")
-            logger.info("✅ Hardware devices cleared by admin")
+            logger.info("Hardware devices cleared by admin")
     
     def on_device_selected(self):
         """Handle device selection in table"""
@@ -526,7 +526,7 @@ class HardwareManagerTab(QWidget):
                             "Universe Mapping Saved",
                             f"Universe mapping for {node.short_name} has been saved."
                         )
-                        logger.info(f"✅ Admin configured universe mapping for {node.short_name}")
+                        logger.info(f"Admin configured universe mapping for {node.short_name}")
     
     def _get_mapped_info(self, ip_address: str) -> str:
         """Get mapped universe info for display"""

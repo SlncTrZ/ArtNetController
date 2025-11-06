@@ -156,7 +156,7 @@ class ConfigMigration:
         config["version"] = "2.0.0"
         config["last_updated"] = datetime.now().isoformat()
         
-        logger.info("✅ Config migrated to v2.0")
+        logger.info("Config migrated to v2.0")
         return config
     
     @staticmethod
@@ -313,7 +313,7 @@ class ConfigManager:
                 # Merge với defaults (add missing keys)
                 self.config = self._merge_with_defaults(self.config, DEFAULT_CONFIG)
                 
-                logger.info("✅ Config loaded successfully")
+                logger.info("Config loaded successfully")
                 return True
             
             else:
@@ -576,12 +576,12 @@ def migrate_v1_files_to_v2() -> bool:
         if v1_app_config.exists():
             with open(v1_app_config, 'r', encoding='utf-8') as f:
                 v1_app = json.load(f)
-            logger.info(f"✅ Loaded {v1_app_config}")
+            logger.info(f"Loaded {v1_app_config}")
         
         if v1_network_config.exists():
             with open(v1_network_config, 'r', encoding='utf-8') as f:
                 v1_network = json.load(f)
-            logger.info(f"✅ Loaded {v1_network_config}")
+            logger.info(f"Loaded {v1_network_config}")
         
         # Create V2 config from DEFAULT_CONFIG
         v2_data = DEFAULT_CONFIG.copy()
@@ -639,16 +639,16 @@ def migrate_v1_files_to_v2() -> bool:
         if v1_network_config.exists():
             shutil.copy(v1_network_config, backup_dir / "network_config.json")
         
-        logger.info(f"✅ V1 configs backed up to {backup_dir}")
+        logger.info(f"V1 configs backed up to {backup_dir}")
         
         # Save V2 config
         v2_config.parent.mkdir(parents=True, exist_ok=True)
         with open(v2_config, 'w', encoding='utf-8') as f:
             json.dump(v2_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"✅ V2 config created: {v2_config}")
+        logger.info(f"V2 config created: {v2_config}")
         logger.info("=" * 60)
-        logger.info("✅ Migration completed successfully!")
+        logger.info("Migration completed successfully!")
         logger.info("=" * 60)
         
         return True

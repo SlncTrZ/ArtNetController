@@ -629,7 +629,7 @@ class RecordTab(QWidget):
         try:
             self.timecode_manager.stop_all()
             self.active_timecode_receivers.clear()
-            logger.info("🛑 All timecode receivers stopped")
+            logger.info("All timecode receivers stopped")
         except Exception as e:
             logger.error(f"Error stopping timecode receivers: {e}")
     
@@ -772,9 +772,9 @@ class RecordTab(QWidget):
         """Called when timecode signal is received from external source"""
         # Debug: log receipt and payload shape to help trace crashes
         try:
-            logger.debug(f"📥 RecordTab.on_timecode_received payload: {timecode_data}, is_waiting={getattr(self, 'is_waiting_for_timecode', False)}")
+            logger.debug(f"RecordTab.on_timecode_received payload: {timecode_data}, is_waiting={getattr(self, 'is_waiting_for_timecode', False)}")
         except Exception:
-            logger.debug("📥 RecordTab.on_timecode_received received payload (unserializable)")
+            logger.debug("RecordTab.on_timecode_received received payload (unserializable)")
         timecode_string = timecode_data.get('timecode', '00:00:00:00')
         fps = timecode_data.get('fps', 30)
         source = timecode_data.get('source', 'Unknown')

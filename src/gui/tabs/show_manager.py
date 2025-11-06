@@ -2,6 +2,7 @@
 Show Manager Tab - Manage and play DMX shows with playlist controls
 """
 
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTableWidget, QTableWidgetItem, QPushButton,
@@ -31,6 +32,7 @@ except ImportError:
     print("Warning: DMXPlayer not available - binary show playback disabled")
     DMXPlayer = None
 
+logger = logging.getLogger(__name__)
 
 class ShowManagerTab(QWidget):
     """Show Manager with playlist and a simple playback engine"""
@@ -380,7 +382,7 @@ class ShowManagerTab(QWidget):
             shows_dir = Path("data/shows")
         
         shows_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"📁 Loading shows from: {shows_dir}")
+        logger.info(f"Loading shows from: {shows_dir}")
         self.shows_data.clear()
         self.table.setRowCount(0)
 

@@ -136,7 +136,7 @@ class NetTimecodeReceiver(TimecodeReceiver):
             self.socket.bind((self.host, self.port))
             
             self.is_running = True
-            logger.info(f"🌐 Net-timecode receiver started on {self.host}:{self.port}")
+            logger.info(f"Net-timecode receiver started on {self.host}:{self.port}")
             self.status_changed.emit(f"Net-timecode listening on port {self.port}")
             
             # Start receiver thread
@@ -400,7 +400,7 @@ class TimecodeManager:
             if receiver.start():
                 self.active_receivers.append(name)
                 started_count += 1
-                logger.info(f"✅ Started {name} receiver")
+                logger.info(f"Started {name} receiver")
             else:
                 logger.warning(f"❌ Failed to start {name} receiver")
         
@@ -411,7 +411,7 @@ class TimecodeManager:
         for name, receiver in self.receivers.items():
             try:
                 receiver.stop()
-                logger.info(f"🛑 Stopped {name} receiver")
+                logger.info(f"Stopped {name} receiver")
             except Exception as e:
                 logger.error(f"Error stopping {name} receiver: {e}")
         
