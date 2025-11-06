@@ -66,9 +66,10 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 ; Main executable
 Source: "dist\DMXMaster-LTS-1.0.6.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; Configuration and data directories
-Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
+; Default shows and data (for copying to AppData on first run)
 Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Assets (icons, images)
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Documentation
@@ -100,9 +101,10 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Filename: "{app}\README.md"; Description: "View README and Getting Started Guide"; Flags: postinstall skipifsilent shellexec unchecked
 
 [UninstallDelete]
-; Clean up logs on uninstall (preserve user shows and config)
-Type: filesandordirs; Name: "{app}\logs"
-Type: files; Name: "{app}\*.log"
+; Clean up application files only (user data is in AppData)
+Type: filesandordirs; Name: "{app}\data"
+Type: filesandordirs; Name: "{app}\assets"
+Type: filesandordirs; Name: "{app}\docs"
 
 [Code]
 { Custom installation logic }
@@ -125,13 +127,8 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    // Create default show directory
-    CreateDir(ExpandConstant('{app}\data\shows'));
-    CreateDir(ExpandConstant('{app}\data\recordings'));
-    CreateDir(ExpandConstant('{app}\logs'));
-    
-    // Set permissions for data directory
-    // This allows the application to write files without admin rights
+    // No longer need to create directories here
+    // Application creates all data directories in AppData on first run
   end;
 end;
 
@@ -140,15 +137,12 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
-    // Ask user if they want to keep their shows and settings
-    if MsgBox('Do you want to keep your show files and settings?' + #13#10 + 
-              'Choose "No" to completely remove all data.' + #13#10 +
-              'Choose "Yes" to preserve your shows and configuration.', 
-              mbConfirmation, MB_YESNO) = IDNO then
-    begin
-      // Remove user data
-      DelTree(ExpandConstant('{app}\data'), True, True, True);
-      DelTree(ExpandConstant('{app}\config'), True, True, True);
-    end;
+    // User data (shows, recordings, config, logs) are in AppData
+    // Show message about how to clean AppData if needed
+    MsgBox('DMX Master has been uninstalled.' + #13#10 + #13#10 +
+           'Your shows, recordings, and settings are preserved in:' + #13#10 +
+           '%LOCALAPPDATA%\DMX Master LTS' + #13#10 + #13#10 +
+           'To completely remove all data, manually delete that folder.', 
+           mbInformation, MB_OK);
   end;
 end;
