@@ -158,7 +158,17 @@ class SettingsTab(QWidget):
         show_layout = QFormLayout(show_group)
         
         show_path_layout = QHBoxLayout()
-        self.show_path_edit = QLineEdit("data/shows")
+        
+        # Get actual AppData path for shows
+        if hasattr(self.parent(), 'get_app_data_dir'):
+            data_dir = self.parent().get_app_data_dir()
+            default_shows_path = str(data_dir / "shows")
+        else:
+            default_shows_path = "data/shows"
+        
+        self.show_path_edit = QLineEdit(default_shows_path)
+        self.show_path_edit.setReadOnly(True)  # Read-only to prevent user changes
+        self.show_path_edit.setToolTip("Shows are stored in AppData for better permissions")
         show_path_layout.addWidget(self.show_path_edit)
         
         self.show_path_button = QPushButton("Browse")
@@ -208,7 +218,17 @@ class SettingsTab(QWidget):
         recording_layout = QFormLayout(recording_group)
         
         recording_path_layout = QHBoxLayout()
-        self.recording_path_edit = QLineEdit("data/recordings")
+        
+        # Get actual AppData path for recordings
+        if hasattr(self.parent(), 'get_app_data_dir'):
+            data_dir = self.parent().get_app_data_dir()
+            default_recordings_path = str(data_dir / "recordings")
+        else:
+            default_recordings_path = "data/recordings"
+        
+        self.recording_path_edit = QLineEdit(default_recordings_path)
+        self.recording_path_edit.setReadOnly(True)  # Read-only to prevent user changes
+        self.recording_path_edit.setToolTip("Recordings are stored in AppData for better permissions")
         recording_path_layout.addWidget(self.recording_path_edit)
         
         self.recording_path_button = QPushButton("Browse")

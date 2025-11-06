@@ -89,11 +89,50 @@ class HardwareManagerTab(QWidget):
         self.is_scanning = False
         self.scan_start_timer = None
         
+        # Admin access control
+        self._is_admin = False
+        
         # Universe mapping: {ip_address: {port_number: universe}}
         self.universe_mapping = self._load_universe_mapping()
         
         self.init_ui()
         self.init_timer()
+    
+    def set_admin_mode(self, is_admin: bool):
+        """Set admin mode and update UI accordingly"""
+        self._is_admin = is_admin
+        self._update_admin_ui()
+        logger.info(f"🔐 Hardware Manager admin mode: {is_admin}")
+    
+    def _update_admin_ui(self):
+        """Update UI based on admin status"""
+        # Check if buttons exist before updating
+        if not hasattr(self, 'configure_universe_button'):
+            return
+        
+        # Configure Universe button
+        if self._is_admin:
+            # Enable if a device is selected
+            selected = len(self.devices_table.selectionModel().selectedRows()) > 0
+            self.configure_universe_button.setEnabled(selected)
+            self.configure_universe_button.setToolTip("Configure universe mapping for selected device")
+        else:
+            self.configure_universe_button.setEnabled(False)
+            self.configure_universe_button.setToolTip("🔒 Admin access required to configure universe mapping")
+        
+        # Clear button
+        if hasattr(self, 'clear_button'):
+            self.clear_button.setEnabled(self._is_admin)
+            if not self._is_admin:
+                self.clear_button.setToolTip("🔒 Admin access required to clear devices")
+            else:
+                self.clear_button.setToolTip("Clear all discovered devices")
+        
+        # Update status message
+        if not self._is_admin:
+            logger.debug("👀 Hardware Manager in VIEW-ONLY mode (non-admin user)")
+        else:
+            logger.debug("✏️  Hardware Manager in EDIT mode (admin user)")
     
     def init_ui(self):
         """Khởi tạo UI"""
@@ -376,6 +415,17 @@ class HardwareManagerTab(QWidget):
     
     def clear_devices(self):
         """Clear devices table"""
+        # Check admin permission
+        if not self._is_admin:
+            QMessageBox.warning(
+                self,
+                "Access Denied",
+                "🔒 Admin access required to clear devices.\n\n"
+                "Please log in as admin to modify hardware configuration."
+            )
+            logger.warning("⚠️  User attempted to clear devices without admin permission")
+            return
+        
         reply = QMessageBox.question(
             self,
             "Clear Devices",
@@ -388,6 +438,7 @@ class HardwareManagerTab(QWidget):
             self.devices_table.setRowCount(0)
             self.clear_device_details()
             self.device_count_label.setText("Devices: 0")
+            logger.info("✅ Hardware devices cleared by admin")
     
     def on_device_selected(self):
         """Handle device selection in table"""
@@ -403,8 +454,13 @@ class HardwareManagerTab(QWidget):
                 
                 if node:
                     self.show_device_details(node)
-                    self.configure_universe_button.setEnabled(True)
+                    # Only enable if admin
+                    self.configure_universe_button.setEnabled(self._is_admin)
                     self.ping_device_button.setEnabled(True)
+                    
+                    # Update tooltips
+                    if not self._is_admin:
+                        self.configure_universe_button.setToolTip("🔒 Admin access required")
         else:
             self.clear_device_details()
             self.configure_universe_button.setEnabled(False)
@@ -433,6 +489,17 @@ class HardwareManagerTab(QWidget):
     
     def configure_universe_mapping(self):
         """Configure Universe mapping for selected device"""
+        # Check admin permission
+        if not self._is_admin:
+            QMessageBox.warning(
+                self,
+                "Access Denied",
+                "🔒 Admin access required to configure universe mapping.\n\n"
+                "Please log in as admin to modify hardware configuration."
+            )
+            logger.warning("⚠️  User attempted to configure universe mapping without admin permission")
+            return
+        
         selected_rows = self.devices_table.selectionModel().selectedRows()
         
         if selected_rows:
@@ -459,6 +526,7 @@ class HardwareManagerTab(QWidget):
                             "Universe Mapping Saved",
                             f"Universe mapping for {node.short_name} has been saved."
                         )
+                        logger.info(f"✅ Admin configured universe mapping for {node.short_name}")
     
     def _get_mapped_info(self, ip_address: str) -> str:
         """Get mapped universe info for display"""

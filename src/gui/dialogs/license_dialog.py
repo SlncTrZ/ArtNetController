@@ -61,13 +61,24 @@ class LicenseDialog(QDialog):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
         
-        # Status group
+        # Status group - ALWAYS VISIBLE
         status_group = QGroupBox("Current License Status")
         status_layout = QFormLayout(status_group)
         
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
         status_layout.addRow("Status:", self.status_label)
+        
+        self.license_type_label = QLabel("")
+        status_layout.addRow("License Type:", self.license_type_label)
+        
+        self.expiration_label = QLabel("")
+        status_layout.addRow("Expiration:", self.expiration_label)
+        
+        self.device_id_status_label = QLabel("")
+        self.device_id_status_label.setFont(QFont("Courier", 8))
+        self.device_id_status_label.setWordWrap(True)
+        status_layout.addRow("Device ID:", self.device_id_status_label)
         
         self.trial_label = QLabel("")
         status_layout.addRow("Trial Info:", self.trial_label)
@@ -76,6 +87,14 @@ class LicenseDialog(QDialog):
         status_layout.addRow("Platform:", self.platform_label)
         
         layout.addWidget(status_group)
+        
+        # ===== ACTIVATION STEPS WIDGET (hidden when activated) =====
+        self.activation_steps_widget = QWidget()
+        activation_steps_layout = QVBoxLayout(self.activation_steps_widget)
+        
+        # ===== ACTIVATION STEPS WIDGET (hidden when activated) =====
+        self.activation_steps_widget = QWidget()
+        activation_steps_layout = QVBoxLayout(self.activation_steps_widget)
         
         # ===== STEP 1: Device ID =====
         device_group = QGroupBox("📋 Step 1: Get Your Device ID")
@@ -109,7 +128,7 @@ class LicenseDialog(QDialog):
         contact_info.setStyleSheet("color: #666; font-size: 10pt;")
         device_layout.addWidget(contact_info)
         
-        layout.addWidget(device_group)
+        activation_steps_layout.addWidget(device_group)
         
         # ===== STEP 2: License JSON =====
         input_group = QGroupBox("📥 Step 2: Enter License from Admin")
@@ -151,7 +170,10 @@ class LicenseDialog(QDialog):
         
         input_layout.addLayout(paste_layout)
         
-        layout.addWidget(input_group)
+        activation_steps_layout.addWidget(input_group)
+        
+        # Add activation steps widget to main layout
+        layout.addWidget(self.activation_steps_widget)
         
         # ===== ACTIVATION BUTTONS =====
         button_layout = QHBoxLayout()
@@ -161,10 +183,13 @@ class LicenseDialog(QDialog):
         self.activate_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px; font-size: 12pt;")
         button_layout.addWidget(self.activate_btn)
         
-        self.deactivate_btn = QPushButton("❌ Deactivate")
+        self.deactivate_btn = QPushButton("🔓 Deactivate License")
         self.deactivate_btn.clicked.connect(self.deactivate_license)
-        self.deactivate_btn.setEnabled(False)
+        self.deactivate_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 10px;")
+        self.deactivate_btn.setVisible(False)  # Hidden by default
         button_layout.addWidget(self.deactivate_btn)
+        
+        button_layout.addStretch()
         
         self.close_btn = QPushButton("Close")
         self.close_btn.clicked.connect(self.accept)
@@ -270,7 +295,7 @@ class LicenseDialog(QDialog):
                     f"Failed to load file:\n{e}"
                 )
     def update_status(self):
-        """Update status labels"""
+        """Update status labels and show/hide activation steps"""
         info = self.license_manager.get_license_info()
         
         # Status
@@ -279,7 +304,9 @@ class LicenseDialog(QDialog):
         if is_licensed:
             license_data = info.get('license_data')
             if license_data:
-                # Activated
+                # Activated - HIDE activation steps
+                self.activation_steps_widget.setVisible(False)
+                
                 self.status_label.setText("✅ ACTIVATED")
                 self.status_label.setStyleSheet("color: green; font-weight: bold; font-size: 12pt;")
                 
@@ -288,11 +315,23 @@ class LicenseDialog(QDialog):
                 )
                 self.trial_label.setStyleSheet("color: green;")
                 
-                # Show license in input
-                self.license_json_input.setPlainText(json.dumps(license_data, indent=2))
+                # Show license details
+                license_type = license_data.get('license_type', 'Standard')
+                self.license_type_label.setText(f"License Type: {license_type}")
+                
+                expiration = license_data.get('expiration_date', 'Lifetime')
+                self.expiration_label.setText(f"Expiration: {expiration}")
+                
+                device_id = license_data.get('device_id', 'N/A')
+                self.device_id_status_label.setText(f"Device ID: {device_id[:16]}...")
+                
+                self.activate_btn.setVisible(False)
+                self.deactivate_btn.setVisible(True)
                 self.deactivate_btn.setEnabled(True)
             else:
-                # Trial active
+                # Trial active - SHOW activation steps
+                self.activation_steps_widget.setVisible(True)
+                
                 days_remaining = info['trial_days_remaining']
                 self.status_label.setText(f"⏳ TRIAL MODE ({days_remaining} days left)")
                 self.status_label.setStyleSheet("color: orange; font-weight: bold; font-size: 12pt;")
@@ -301,19 +340,31 @@ class LicenseDialog(QDialog):
                     f"Trial expires in {days_remaining} days - All features unlocked"
                 )
                 self.trial_label.setStyleSheet("color: orange;")
-                # Clear JSON input when in trial mode
-                self.license_json_input.clear()
-                self.deactivate_btn.setEnabled(False)
+                
+                # Clear license details
+                self.license_type_label.setText("License Type: Trial")
+                self.expiration_label.setText(f"Expiration: {days_remaining} days")
+                self.device_id_status_label.setText("")
+                
+                self.activate_btn.setVisible(True)
+                self.deactivate_btn.setVisible(False)
         else:
-            # Trial expired
+            # Trial expired - SHOW activation steps
+            self.activation_steps_widget.setVisible(True)
+            
             self.status_label.setText("❌ TRIAL EXPIRED")
             self.status_label.setStyleSheet("color: red; font-weight: bold; font-size: 12pt;")
             
             self.trial_label.setText("Please purchase a license to continue using the software")
             self.trial_label.setStyleSheet("color: red; font-weight: bold;")
-            # Clear JSON input when expired
-            self.license_json_input.clear()
-            self.deactivate_btn.setEnabled(False)
+            
+            # Clear license details
+            self.license_type_label.setText("License Type: None")
+            self.expiration_label.setText("Expiration: Expired")
+            self.device_id_status_label.setText("")
+            
+            self.activate_btn.setVisible(True)
+            self.deactivate_btn.setVisible(False)
         
         # Platform
         import platform

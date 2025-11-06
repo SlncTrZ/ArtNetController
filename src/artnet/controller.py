@@ -204,27 +204,26 @@ class ArtNetController:
     def pause_output(self):
         """Pause DMX output (V2.0 - for recording safety)"""
         self.output_paused = True
-        logger.info("⏸️  Art-Net output PAUSED")
+        logger.info("Art-Net output PAUSED")
 
     def resume_output(self):
         """Resume DMX output (V2.0)"""
         self.output_paused = False
-        logger.info("▶️  Art-Net output RESUMED")
+        logger.info("Art-Net output RESUMED")
     
     def register_timecode_callback(self, callback_func: Callable):
         """Register callback for timecode packets (V2.0)"""
         if callback_func not in self.timecode_callbacks:
             self.timecode_callbacks.append(callback_func)
-            logger.info(f"🎵 Timecode callback registered with Art-Net controller (total: {len(self.timecode_callbacks)})")
-            logger.info(f"🔍 Registered callback: {callback_func}")
+            logger.debug(f"Timecode callback registered (total: {len(self.timecode_callbacks)})")
         else:
-            logger.warning(f"⚠️  Callback already in list: {callback_func}")
+            logger.debug(f"Callback already registered: {callback_func}")
     
     def unregister_timecode_callback(self, callback_func: Callable):
         """Unregister timecode callback (V2.0)"""
         if callback_func in self.timecode_callbacks:
             self.timecode_callbacks.remove(callback_func)
-            logger.info("🚫 Timecode callback unregistered from Art-Net controller")
+            logger.debug("Timecode callback unregistered from Art-Net controller")
 
     def stop(self):
         """Dừng Art-Net controller"""
@@ -407,42 +406,40 @@ class ArtNetController:
         """Xử lý packet nhận được"""
         packet = ArtNetPacket.unpack(data)
         if not packet:
-            logger.warning(f"❌ Failed to unpack packet from {addr[0]}")
+            logger.warning(f"Failed to unpack packet from {addr[0]}")
             return
         
         opcode = packet['opcode']
         payload = packet['payload']
         
-        # DEBUG: Log ALL opcodes to diagnose timecode issue
-        logger.debug(f"🔍 Received OpCode: 0x{opcode:04X} from {addr[0]}")
+        # DEBUG: Log ALL opcodes (moved to DEBUG level to reduce spam)
+        logger.debug(f"Received OpCode: 0x{opcode:04X} from {addr[0]}")
         
-        # DEBUG: Log packet types (DMX logging moved inside handler for optimization)
+        # Route packets to handlers
         if opcode == ArtNetPacket.ARTNET_DMX:
             self._handle_dmx_packet(payload, addr)
         elif opcode == ArtNetPacket.ARTNET_POLL_REPLY:
-            logger.info(f"📦 Poll Reply packet received from {addr[0]}")
+            logger.debug(f"Poll Reply received from {addr[0]}")
             self._handle_poll_reply(payload, addr)
         elif opcode == ArtNetPacket.ARTNET_POLL:
-            logger.info(f"📦 Poll packet received from {addr[0]}")
+            logger.debug(f"Poll received from {addr[0]}")
             self._handle_poll(payload, addr)
         elif opcode == ArtNetPacket.ARTNET_TIME_CODE:
-            logger.info(f"🎵 Timecode packet (OpCode 0x{opcode:04X}) received from {addr[0]}")
+            logger.debug(f"Timecode packet (OpCode 0x{opcode:04X}) from {addr[0]}")
             self._handle_timecode_packet(data, addr)  # Pass full data for timecode processing
         else:
-            logger.info(f"📦 Unknown packet type 0x{opcode:04X} from {addr[0]}")
+            logger.debug(f"Unknown packet type 0x{opcode:04X} from {addr[0]}")
     
     def _handle_timecode_packet(self, data: bytes, addr: tuple):
         """Handle Art-Net 4 Timecode packet (V2.0)"""
         try:
             # Forward to registered timecode callbacks
             if len(self.timecode_callbacks) == 0:
-                # Only log warning once every 100 packets to reduce spam
+                # Only log warning once to reduce spam
                 self._timecode_warning_count = getattr(self, '_timecode_warning_count', 0) + 1
                 if self._timecode_warning_count == 1:
-                    logger.warning("⚠️ Timecode packet received but NO callbacks registered!")
-                    logger.warning("💡 Enable 'Wait for Timecode Signal' in Record tab and press START RECORDING")
-                elif self._timecode_warning_count % 100 == 0:
-                    logger.debug(f"🎵 Timecode packets received: {self._timecode_warning_count} (no callback registered)")
+                    logger.warning("Timecode packet received but NO callbacks registered")
+                    logger.info("Enable 'Wait for Timecode Signal' in Record tab to capture timecode")
                 return
             
             for callback in self.timecode_callbacks:
@@ -451,7 +448,7 @@ class ArtNetController:
                 except Exception as e:
                     logger.error(f"Error in timecode callback: {e}")
             
-            logger.debug(f"🎵 Timecode packet forwarded to {len(self.timecode_callbacks)} callback(s)")
+            logger.debug(f"Timecode packet forwarded to {len(self.timecode_callbacks)} callback(s)")
             
         except Exception as e:
             logger.error(f"Error handling timecode packet: {e}")
@@ -493,17 +490,17 @@ class ArtNetController:
             if is_all_zero:
                 # If previous was also all zero, skip callback
                 if previous_data is not None and all(b == 0 for b in previous_data):
-                    logger.debug(f"⏩ Skipping Universe {universe} - still all zeros")
+                    logger.debug(f"Skipping Universe {universe} - still all zeros")
                     return
                 else:
                     # First time going to blackout - update once
-                    logger.info(f"🌑 Universe {universe} entered blackout (all zeros)")
+                    logger.debug(f"Universe {universe} entered blackout")
                     data_changed = True
             else:
                 # Data changed and not all zero
                 data_changed = True
                 non_zero = sum(1 for b in dmx_data_copy if b > 0)
-                logger.info(f"📦 DMX U{universe}: {len(dmx_data_copy)}ch, {non_zero} active from {addr[0]}")
+                logger.debug(f"DMX U{universe}: {len(dmx_data_copy)}ch, {non_zero} active from {addr[0]}")
             
             # Update local state
             self.dmx_universe_data[universe] = dmx_data_copy
@@ -519,13 +516,14 @@ class ArtNetController:
         # Call callback (ONLY when data changed)
         if self.dmx_received_callback:
             try:
-                logger.debug(f"🔄 Calling DMX callback for Universe {universe}, {len(dmx_data_copy)} channels")
                 self.dmx_received_callback(universe, dmx_data_copy, addr[0])
-                logger.debug(f"✅ DMX callback completed")
             except Exception as e:
-                logger.error(f"❌ Error in DMX callback: {e}")
+                logger.error(f"Error in DMX callback: {e}")
         else:
-            logger.warning("⚠️ No DMX callback registered - DMX data will not reach GUI!")
+            # Only log this warning once
+            if not hasattr(self, '_dmx_callback_warning_logged'):
+                logger.warning("No DMX callback registered - DMX data will not reach GUI")
+                self._dmx_callback_warning_logged = True
     
     def _handle_poll_reply(self, payload: bytes, addr: tuple):
         """

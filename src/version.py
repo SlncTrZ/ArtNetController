@@ -2,9 +2,9 @@
 Version information for DMX Master LTS
 """
 
-__version__ = "1.0.3"
-__version_name__ = "DMX Master LTS 1.0.3"
-__build__ = "2025.11.05.4"
+__version__ = "1.0.6"
+__version_name__ = "DMX Master LTS 1.0.6"
+__build__ = "2025.11.06.1"
 __author__ = "Trương Công Định"
 __email__ = "truongcongdinh97tcd@gmail.com"
 __github_repo__ = "https://github.com/truongcongdinh97/DMX-Master"
@@ -12,7 +12,7 @@ __update_url__ = "https://api.github.com/repos/truongcongdinh97/DMX-Master/relea
 
 # Release information
 __release_type__ = "LTS"  # Long Term Support
-__release_date__ = "2025-11-05"
+__release_date__ = "2025-11-06"
 __stability__ = "Stable"
 __features__ = [
     "Binary DMX Recording & Playback",
@@ -21,14 +21,16 @@ __features__ = [
     "Web-based Remote Control",
     "Professional Show Management",
     "Rainbow Effects & Automation",
-    "🎵 Timecode Sync Recording",
+    "Timecode Sync Recording",
     "Depence/GrandMA Integration", 
-    "Net-timecode & MTC Support",
-    "💙 Enhanced DMX View (Fill UI)",
-    "🔧 CANCEL RECORDING Feature",
-    "🌍 Fixed Art-Net Packet Parsing",
-    "� Full Depence Broadcast Support",
-    "🔧 Enhanced Network Compatibility"
+    "Net-timecode & Art-Net 4 TC Support",
+    "Enhanced DMX View (Fill UI)",
+    "CANCEL RECORDING Feature",
+    "Fixed Art-Net Packet Parsing",
+    "Full Depence Broadcast Support",
+    "Enhanced Network Compatibility",
+    "Professional Logging System",
+    "Optimized Performance"
 ]
 
 def get_version():

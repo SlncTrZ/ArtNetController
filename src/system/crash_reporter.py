@@ -39,13 +39,10 @@ logger = logging.getLogger(__name__)
 # Logging configuration - Use user data directory to avoid permission issues
 def get_user_data_dir():
     """Get user data directory that has write permissions"""
-    # If running as a bundled exe (PyInstaller), use dist folder
-    if getattr(sys, 'frozen', False):
-        exe_dir = Path(sys.executable).parent
-        return exe_dir
+    # Always use AppData/home directory to avoid permission issues in Program Files
     if sys.platform == 'win32':
-        # Windows: Use AppData/Local
-        appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\AppData\Local'))
+        # Windows: Use AppData/Local (writable without admin)
+        appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
         return Path(appdata) / "DMX Master LTS"
     else:
         # Linux/Mac: Use home directory

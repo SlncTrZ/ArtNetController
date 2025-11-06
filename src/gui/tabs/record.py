@@ -121,7 +121,7 @@ class RecordTab(QWidget):
         self.current_recording = None
         
         # ═══════════════════════════════════════════════════════════════
-        # 🎵 TIMECODE SYNC RECORDING - V2.0 State Variables
+        # TIMECODE SYNC RECORDING - V2.0 State Variables
         # ═══════════════════════════════════════════════════════════════
         self.is_waiting_for_timecode = False
         self.recording_start_timecode = None
@@ -140,12 +140,12 @@ class RecordTab(QWidget):
     
     def set_artnet_controller(self, artnet_controller):
         """Set Art-Net controller and restart timecode monitoring if needed"""
-        logger.info(f"🔌 Setting Art-Net controller: {artnet_controller}")
+        logger.info(f"Setting Art-Net controller: {artnet_controller}")
         self.artnet_controller = artnet_controller
         
         # If timecode sync is enabled and we have an Art-Net controller, restart monitoring
         if self.timecode_sync_checkbox.isChecked() and artnet_controller is not None:
-            logger.info("🔄 Restarting timecode monitoring with Art-Net controller...")
+            logger.info("Restarting timecode monitoring with Art-Net controller...")
             self._start_timecode_monitoring()
     
     def init_ui(self):
@@ -287,11 +287,11 @@ class RecordTab(QWidget):
         settings_layout.addWidget(self.disable_output_checkbox)
 
         # ═══════════════════════════════════════════════════════════════
-        # 🎵 TIMECODE SYNC RECORDING - V2.0 Professional Feature
+        # TIMECODE SYNC RECORDING - V2.0 Professional Feature
         # ═══════════════════════════════════════════════════════════════
         
         # Timecode Sync Recording
-        timecode_group = QGroupBox("🎵 Timecode Sync Recording")
+        timecode_group = QGroupBox("Timecode Sync Recording")
         timecode_layout = QVBoxLayout(timecode_group)
         
         # Enable/Disable Timecode Sync
@@ -301,7 +301,7 @@ class RecordTab(QWidget):
             "When enabled, recording will not start immediately after clicking RECORD.\n"
             "Instead, it will wait for a timecode signal from external software like Depence.\n"
             "This ensures perfect synchronization between DMX recording and external playback.\n\n"
-            "💡 DEFAULT: ON for professional workflow with Depence/Resolume/MADRIX"
+            "DEFAULT: ON for professional workflow with Depence/Resolume/MADRIX"
         )
         self.timecode_sync_checkbox.setStyleSheet("""
             QCheckBox {
@@ -348,7 +348,7 @@ class RecordTab(QWidget):
         timecode_layout.addLayout(timecode_settings_layout)
         
         # Timecode status display
-        self.timecode_status_label = QLabel("⏱️ Timecode: Not connected")
+        self.timecode_status_label = QLabel("Timecode: Not connected")
         self.timecode_status_label.setStyleSheet("""
             QLabel {
                 background-color: #f5f5f5;
@@ -365,11 +365,11 @@ class RecordTab(QWidget):
         
         # V2.0.1: Start timecode monitoring by default since checkbox is ON
         try:
-            logger.info("🎬 Attempting to start timecode monitoring on init...")
+            logger.info("Attempting to start timecode monitoring on init...")
             self._start_timecode_monitoring()
-            logger.info("✅ Timecode monitoring started successfully on init")
+            logger.info("Timecode monitoring started successfully on init")
         except Exception as e:
-            logger.error(f"❌ Failed to start timecode monitoring on init: {e}", exc_info=True)
+            logger.error(f"Failed to start timecode monitoring on init: {e}", exc_info=True)
         
         settings_layout.addWidget(timecode_group)
 
@@ -542,7 +542,7 @@ class RecordTab(QWidget):
         
         if checked:
             # Start timecode monitoring
-            self.timecode_status_label.setText("⏱️ Timecode: Waiting for signal...")
+            self.timecode_status_label.setText("Timecode: Waiting for signal...")
             self.timecode_status_label.setStyleSheet("""
                 QLabel {
                     background-color: #fff3e0;
@@ -554,13 +554,13 @@ class RecordTab(QWidget):
                     font-weight: bold;
                 }
             """)
-            logger.info("🎵 Timecode sync enabled - waiting for signal")
+            logger.info("Timecode sync enabled - waiting for signal")
             
             # TODO: Start timecode receivers based on selected source
             self._start_timecode_monitoring()
         else:
             # Stop timecode monitoring
-            self.timecode_status_label.setText("⏱️ Timecode: Not connected")
+            self.timecode_status_label.setText("Timecode: Not connected")
             self.timecode_status_label.setStyleSheet("""
                 QLabel {
                     background-color: #f5f5f5;
@@ -570,7 +570,7 @@ class RecordTab(QWidget):
                     font-family: 'Courier New', monospace;
                 }
             """)
-            logger.info("🎵 Timecode sync disabled")
+            logger.info("Timecode sync disabled")
             
             # TODO: Stop timecode receivers
             self._stop_timecode_monitoring()
@@ -578,8 +578,8 @@ class RecordTab(QWidget):
     def _start_timecode_monitoring(self):
         """Start timecode monitoring based on selected source"""
         source = self.timecode_source_combo.currentText()
-        logger.info(f"🎬 Starting timecode monitoring, source: {source}")
-        logger.info(f"🔌 Art-Net controller available: {self.artnet_controller is not None}")
+        logger.info(f"Starting timecode monitoring, source: {source}")
+        logger.info(f"Art-Net controller available: {self.artnet_controller is not None}")
         
         # Stop any existing receivers first
         self._stop_timecode_monitoring()
@@ -592,7 +592,7 @@ class RecordTab(QWidget):
             if mtc_receiver.start():
                 self.active_timecode_receivers.append("mtc")
                 success_count += 1
-                logger.info("🎹 MTC receiver started successfully")
+                logger.info("MTC receiver started successfully")
         
         if "Net-timecode" in source or "Auto-detect" in source:
             port = self.timecode_port_spinbox.value()
@@ -601,10 +601,10 @@ class RecordTab(QWidget):
             if net_receiver.start():
                 self.active_timecode_receivers.append("net-timecode")
                 success_count += 1
-                logger.info(f"🌐 Net-timecode receiver started on port {port}")
+                logger.info(f"Net-timecode receiver started on port {port}")
         
         if "Art-Net 4" in source or "Auto-detect" in source:
-            logger.info(f"🎭 Creating Art-Net 4 Timecode receiver with controller: {self.artnet_controller}")
+            logger.info(f"Creating Art-Net 4 Timecode receiver with controller: {self.artnet_controller}")
             artnet4_receiver = self.timecode_manager.create_artnet4_timecode_receiver(
                 artnet_controller=self.artnet_controller  # Pass Art-Net controller for shared socket
             )
@@ -614,11 +614,11 @@ class RecordTab(QWidget):
             if artnet4_receiver.start():
                 self.active_timecode_receivers.append("artnet4-timecode")
                 success_count += 1
-                logger.info("✅ Art-Net 4 Timecode receiver started (Depence compatible)")
+                logger.info("Art-Net 4 Timecode receiver started (Depence compatible)")
             else:
-                logger.warning("❌ Art-Net 4 Timecode receiver failed to start")
-                logger.warning("💡 This may be due to port conflict with main Art-Net controller")
-                logger.warning("🔧 For Depence: Ensure timecode is being sent to Art-Net universe")
+                logger.warning("Art-Net 4 Timecode receiver failed to start")
+                logger.warning("This may be due to port conflict with main Art-Net controller")
+                logger.warning("For Depence: Ensure timecode is being sent to Art-Net universe")
         if "LTC" in source:
             ltc_receiver = self.timecode_manager.create_ltc_receiver()
             ltc_receiver.set_callbacks(self.on_timecode_received, self.on_timecode_stopped)
@@ -629,15 +629,15 @@ class RecordTab(QWidget):
         
         if success_count > 0:
             active_list = ", ".join(self.active_timecode_receivers)
-            logger.info(f"✅ Timecode monitoring active: {active_list}")
-            self.timecode_status_label.setText(f"⏱️ Listening: {active_list}")
+            logger.info(f"Timecode monitoring active: {active_list}")
+            self.timecode_status_label.setText(f"Listening: {active_list}")
         else:
-            logger.warning("❌ No timecode receivers could be started")
-            logger.warning("🔧 For Depence integration:")
+            logger.warning("No timecode receivers could be started")
+            logger.warning("For Depence integration:")
             logger.warning("   1. Ensure python-rtmidi is installed")
             logger.warning("   2. Check MIDI interface connection")
             logger.warning("   3. Verify Depence MTC output settings")
-            self.timecode_status_label.setText("⏱️ Error: No receivers (check MIDI setup)")
+            self.timecode_status_label.setText("Error: No receivers (check MIDI setup)")
             self.timecode_status_label.setStyleSheet("""
                 QLabel {
                     background-color: #ffebee;
@@ -660,11 +660,11 @@ class RecordTab(QWidget):
     
     def _start_mtc_receiver(self):
         """Start MTC (MIDI Time Code) receiver - DEPRECATED, use _start_timecode_monitoring"""
-        logger.info("🎹 Use _start_timecode_monitoring instead")
+        logger.info("Use _start_timecode_monitoring instead")
         
     def _start_net_timecode_receiver(self):
         """Start Net-timecode receiver - DEPRECATED, use _start_timecode_monitoring"""
-        logger.info("🌐 Use _start_timecode_monitoring instead")
+        logger.info("Use _start_timecode_monitoring instead")
         
     def _start_ltc_receiver(self):
         """Start LTC (Linear Time Code) receiver - DEPRECATED, use _start_timecode_monitoring"""
@@ -687,7 +687,7 @@ class RecordTab(QWidget):
                 "Art-Net must be running to receive timecode signals.\n\n"
                 "Please start Art-Net in Control tab first."
             )
-            logger.warning("⚠️  Cannot start recording: Art-Net not running (needed for timecode)")
+            logger.warning("Cannot start recording: Art-Net not running (needed for timecode)")
             return
         
         # Check if timecode sync is enabled
@@ -729,14 +729,14 @@ class RecordTab(QWidget):
             # Update status and timecode display
             if self.disable_output_checkbox.isChecked() and self.artnet_controller:
                 self.artnet_controller.pause_output()
-                logger.info("⏸️  DMX output PAUSED for recording (safety mode)")
-                self.status_label.setText("⏱️ Waiting for timecode... (DMX OUTPUT DISABLED)")
+                logger.info("DMX output PAUSED for recording (safety mode)")
+                self.status_label.setText("Waiting for timecode... (DMX OUTPUT DISABLED)")
                 self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
             else:
-                self.status_label.setText("⏱️ Waiting for timecode signal...")
+                self.status_label.setText("Waiting for timecode signal...")
                 self.status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
             
-            self.timecode_status_label.setText("⏱️ Timecode: Waiting for signal to start recording...")
+            self.timecode_status_label.setText("Timecode: Waiting for signal to start recording...")
             self.timecode_status_label.setStyleSheet("""
                 QLabel {
                     background-color: #fff3e0;
@@ -749,7 +749,7 @@ class RecordTab(QWidget):
                 }
             """)
             
-            logger.info("🎵 Recording armed - waiting for timecode signal to start")
+            logger.info("Recording armed - waiting for timecode signal to start")
             return
         
         # Normal recording mode (immediate start)
@@ -765,7 +765,7 @@ class RecordTab(QWidget):
         # V2.0: Pause DMX output if checkbox is enabled  
         if self.disable_output_checkbox.isChecked() and self.artnet_controller:
             self.artnet_controller.pause_output()
-            logger.info("⏸️  DMX output PAUSED for recording (safety mode)")
+            logger.info("DMX output PAUSED for recording (safety mode)")
             self.status_label.setText("Recording... (DMX OUTPUT DISABLED)")
             self.status_label.setStyleSheet("color: #ff9800; font-weight: bold;")
         else:
@@ -805,7 +805,7 @@ class RecordTab(QWidget):
         source = timecode_data.get('source', 'Unknown')
         
         # Update timecode display
-        self.timecode_status_label.setText(f"⏱️ Timecode: {timecode_string} ({fps}fps) - {source}")
+        self.timecode_status_label.setText(f"Timecode: {timecode_string} ({fps}fps) - {source}")
         self.timecode_status_label.setStyleSheet("""
             QLabel {
                 background-color: #e8f5e8;
@@ -820,8 +820,8 @@ class RecordTab(QWidget):
         
         # If waiting for timecode to start recording, start now
         if getattr(self, 'is_waiting_for_timecode', False):
-            logger.info(f"🎵 Timecode received! Starting recording synchronized with {source}")
-            logger.info(f"📟 Timecode: {timecode_string} at {fps}fps")
+            logger.info(f"Timecode received - Starting recording synchronized with {source}")
+            logger.debug(f"Timecode: {timecode_string} at {fps}fps")
 
             # Store timecode sync info
             self.recording_start_timecode = timecode_string
@@ -832,16 +832,17 @@ class RecordTab(QWidget):
             try:
                 self._start_recording_immediately()
             except Exception as e:
-                logger.error(f"❌ Exception while starting recording from timecode: {e}", exc_info=True)
+                logger.error(f"Exception while starting recording from timecode: {e}", exc_info=True)
 
             # Update timecode status to show recording
-            self.timecode_status_label.setText(f"⏱️ Recording synced: {timecode_string} ({fps}fps) - {source}")
+            self.timecode_status_label.setText(f"Recording synced: {timecode_string} ({fps}fps) - {source}")
     
     def on_timecode_stopped(self):
         """Called when timecode signal stops"""
-        logger.warning("⚠️ Timecode signal lost")
+        logger.warning("Timecode signal lost")
+
         
-        self.timecode_status_label.setText("⏱️ Timecode: Signal lost!")
+        self.timecode_status_label.setText("Timecode: Signal lost!")
         self.timecode_status_label.setStyleSheet("""
             QLabel {
                 background-color: #ffebee;
@@ -865,7 +866,7 @@ class RecordTab(QWidget):
         # V2.0: Resume DMX output if it was paused
         if self.disable_output_checkbox.isChecked() and self.artnet_controller:
             self.artnet_controller.resume_output()
-            logger.info("▶️  DMX output RESUMED after recording")
+            logger.info("DMX output RESUMED after recording")
 
         self.record_button.setText("START RECORDING")
         self.record_button.setStyleSheet("""
@@ -904,7 +905,7 @@ class RecordTab(QWidget):
             # Resume DMX output if it was paused
             if self.disable_output_checkbox.isChecked() and self.artnet_controller:
                 self.artnet_controller.resume_output()
-                logger.info("▶️  DMX output RESUMED after canceling recording")
+                logger.info("DMX output RESUMED after canceling recording")
             
             # Reset buttons to initial state
             self.record_button.setText("START RECORDING")
@@ -929,7 +930,7 @@ class RecordTab(QWidget):
             self.status_label.setStyleSheet("color: #f44336; font-weight: bold;")
             
             # Reset timecode status
-            self.timecode_status_label.setText("⏱️ Timecode: Not connected")
+            self.timecode_status_label.setText("Timecode: Not connected")
             self.timecode_status_label.setStyleSheet("""
                 QLabel {
                     background-color: #f5f5f5;
@@ -940,7 +941,7 @@ class RecordTab(QWidget):
                 }
             """)
             
-            logger.info("🚫 Recording canceled while waiting for timecode")
+            logger.info("Recording canceled while waiting for timecode")
             return
         
         # Normal PAUSE/RESUME functionality for active recording

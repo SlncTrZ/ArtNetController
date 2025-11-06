@@ -28,6 +28,7 @@ Security Features:
     âœ… Online revocation (can remotely disable)
 """
 
+import sys
 import os
 import json
 import hashlib
@@ -76,8 +77,22 @@ TRIAL_DAYS = 7
 # This ensures license file can only be decrypted on the same machine
 AES_SALT = b"DMXMaster_License_Salt_v1.0_DoNotShare"
 
+# Helper function to get config directory
+def get_config_dir():
+    """Get config directory that has write permissions"""
+    if sys.platform == 'win32':
+        # Windows: Use AppData/Local
+        appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+        config_dir = Path(appdata) / "DMX Master LTS" / "config"
+    else:
+        # Linux/Mac: Use home directory
+        config_dir = Path.home() / ".dmx-master-lts" / "config"
+    
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir
+
 # File paths
-CONFIG_DIR = Path(__file__).parent.parent.parent / "config"
+CONFIG_DIR = get_config_dir()
 LICENSE_FILE = CONFIG_DIR / "license.lic"  # Changed to .lic (encrypted)
 REVOCATION_CACHE_FILE = CONFIG_DIR / "revocation_cache.json"
 INSTALL_DATE_FILE = CONFIG_DIR / "install_date.txt"
@@ -89,7 +104,6 @@ class LicenseManager:
     """Manages license activation and validation"""
     
     def __init__(self):
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self._device_id = self._get_hardware_id()
         self._public_key = self._load_public_key()
         self._aes_key = self._derive_aes_key()

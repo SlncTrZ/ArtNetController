@@ -2,17 +2,36 @@
 Utility functions and classes
 """
 
+import sys
 import logging
 import json
 import os
 from pathlib import Path
 from typing import Dict, Any
 
+def get_config_dir():
+    """Get config directory that has write permissions"""
+    if sys.platform == 'win32':
+        # Windows: Use AppData/Local
+        appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+        config_dir = Path(appdata) / "DMX Master LTS" / "config"
+    else:
+        # Linux/Mac: Use home directory
+        config_dir = Path.home() / ".dmx-master-lts" / "config"
+    
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir
+
 class ConfigManager:
     """Quản lý cấu hình ứng dụng"""
     
-    def __init__(self, config_dir: str = "config"):
-        self.config_dir = Path(config_dir)
+    def __init__(self, config_dir: str = None):
+        # Use AppData config directory if not specified
+        if config_dir is None:
+            self.config_dir = get_config_dir()
+        else:
+            self.config_dir = Path(config_dir)
+        
         self.app_config = {}
         self.network_config = {}
         

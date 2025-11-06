@@ -68,11 +68,17 @@ class ShowManagerTab(QWidget):
         # Header: project, time, background
         layout.addLayout(self._build_header_bar())
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_library_panel())
-        splitter.addWidget(self._build_playlist_panel())
-        splitter.setSizes([500, 400])
-        layout.addWidget(splitter)
+        # Main layout: LEFT (70%) = Current Playing | RIGHT (30%) = Library/Playlist/Schedule stack
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # LEFT: Current Playing Panel (70%)
+        main_splitter.addWidget(self._build_current_playing_panel())
+        
+        # RIGHT: Stacked panels (30%)
+        main_splitter.addWidget(self._build_right_stack())
+        
+        main_splitter.setSizes([700, 300])  # 70% / 30% ratio
+        layout.addWidget(main_splitter)
 
     def _build_header_bar(self) -> QHBoxLayout:
         bar = QHBoxLayout()
@@ -99,12 +105,150 @@ class ShowManagerTab(QWidget):
 
         return bar
 
-    def _build_library_panel(self) -> QWidget:
+    def _build_current_playing_panel(self) -> QWidget:
+        """Build the large Current Playing panel (LEFT 70%)"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        
+        # Title
+        title = QLabel("🎬 CURRENT PLAYING")
+        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        
+        # Show name display (large)
+        self.lbl_current_show = QLabel("No Show Playing")
+        self.lbl_current_show.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        self.lbl_current_show.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_current_show.setStyleSheet("color: #4CAF50; padding: 20px;")
+        layout.addWidget(self.lbl_current_show)
+        
+        # Timeline (large progress bar with custom styling)
+        timeline_group = QGroupBox("Timeline")
+        timeline_layout = QVBoxLayout(timeline_group)
+        
+        self.progress = QProgressBar()
+        self.progress.setMinimumHeight(40)  # Large timeline
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #555;
+                border-radius: 8px;
+                text-align: center;
+                font-size: 14pt;
+                font-weight: bold;
+                background-color: #2b2b2b;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 6px;
+            }
+        """)
+        timeline_layout.addWidget(self.progress)
+        
+        # Time readout (Spotify-style)
+        self.time_readout = QLabel("00:00 / 00:00")
+        self.time_readout.setFont(QFont("Segoe UI", 12))
+        self.time_readout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        timeline_layout.addWidget(self.time_readout)
+        
+        layout.addWidget(timeline_group)
+        
+        # Transport controls (large buttons)
+        transport_layout = QHBoxLayout()
+        transport_layout.addStretch()
+        
+        self.btn_prev = QPushButton("⏮ Prev")
+        self.btn_prev.clicked.connect(self._prev)
+        self.btn_prev.setMinimumHeight(50)
+        self.btn_prev.setFont(QFont("Segoe UI", 12))
+        transport_layout.addWidget(self.btn_prev)
+        
+        self.btn_play = QPushButton("▶ Play")
+        self.btn_play.clicked.connect(self._toggle_play)
+        self.btn_play.setMinimumHeight(50)
+        self.btn_play.setMinimumWidth(120)
+        self.btn_play.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        self.btn_play.setStyleSheet("background-color: #4CAF50; color: white;")
+        transport_layout.addWidget(self.btn_play)
+        
+        self.btn_stop = QPushButton("⏹ Stop")
+        self.btn_stop.clicked.connect(self._stop)
+        self.btn_stop.setMinimumHeight(50)
+        self.btn_stop.setFont(QFont("Segoe UI", 12))
+        self.btn_stop.setStyleSheet("background-color: #f44336; color: white;")
+        transport_layout.addWidget(self.btn_stop)
+        
+        self.btn_next = QPushButton("Next ⏭")
+        self.btn_next.clicked.connect(self._next)
+        self.btn_next.setMinimumHeight(50)
+        self.btn_next.setFont(QFont("Segoe UI", 12))
+        transport_layout.addWidget(self.btn_next)
+        
+        transport_layout.addStretch()
+        layout.addLayout(transport_layout)
+        
+        # Playback modes (Loop/Shuffle)
+        modes_layout = QHBoxLayout()
+        modes_layout.addStretch()
+        
+        self.btn_loop = QPushButton("🔁 Loop: OFF")
+        self.btn_loop.setCheckable(True)
+        self.btn_loop.toggled.connect(self._toggle_loop)
+        self.btn_loop.setFont(QFont("Segoe UI", 11))
+        modes_layout.addWidget(self.btn_loop)
+        
+        self.btn_shuffle = QPushButton("🔀 Shuffle: OFF")
+        self.btn_shuffle.setCheckable(True)
+        self.btn_shuffle.toggled.connect(self._toggle_shuffle)
+        self.btn_shuffle.setFont(QFont("Segoe UI", 11))
+        modes_layout.addWidget(self.btn_shuffle)
+        
+        modes_layout.addStretch()
+        layout.addLayout(modes_layout)
+        
+        # Status label
+        self.lbl_status = QLabel("Ready")
+        self.lbl_status.setFont(QFont("Segoe UI", 11))
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lbl_status)
+        
+        layout.addStretch()
+        
+        return panel
 
-        title = QLabel("Shows Library")
-        title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+    def _build_right_stack(self) -> QWidget:
+        """Build the right side stacked panels (RIGHT 30%)"""
+        stack_widget = QWidget()
+        stack_layout = QVBoxLayout(stack_widget)
+        stack_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create vertical splitter for 3 panels
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        # 1. Show Library (top)
+        right_splitter.addWidget(self._build_library_panel())
+        
+        # 2. Playlist (middle)
+        right_splitter.addWidget(self._build_playlist_panel())
+        
+        # 3. Scheduler (bottom)
+        right_splitter.addWidget(self._build_scheduler_panel())
+        
+        # Equal sizes for all 3 panels
+        right_splitter.setSizes([250, 250, 250])
+        
+        stack_layout.addWidget(right_splitter)
+        
+        return stack_widget
+
+    def _build_library_panel(self) -> QWidget:
+        """Compact Show Library panel"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        title = QLabel("📚 Shows Library")
+        title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         layout.addWidget(title)
 
         self.table = QTableWidget(0, 4)
@@ -118,20 +262,25 @@ class ShowManagerTab(QWidget):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table)
 
+        # Compact buttons
         btns = QHBoxLayout()
-        self.btn_add = QPushButton("Add to Playlist")
+        self.btn_add = QPushButton("➕ Add")
         self.btn_add.clicked.connect(self._add_selected_to_playlist)
+        self.btn_add.setToolTip("Add selected shows to playlist")
         btns.addWidget(self.btn_add)
 
-        self.btn_play_single = QPushButton("Play Single")
+        self.btn_play_single = QPushButton("▶ Play")
         self.btn_play_single.clicked.connect(self._play_single)
+        self.btn_play_single.setToolTip("Play selected show immediately")
         btns.addWidget(self.btn_play_single)
 
         # Admin-only actions
-        self.btn_edit = QPushButton("Edit")
+        self.btn_edit = QPushButton("✏️")
         self.btn_edit.clicked.connect(self._edit_show)
-        self.btn_delete = QPushButton("Delete")
+        self.btn_edit.setToolTip("Edit show (Admin only)")
+        self.btn_delete = QPushButton("🗑️")
         self.btn_delete.clicked.connect(self._delete_show)
+        self.btn_delete.setToolTip("Delete show (Admin only)")
         btns.addWidget(self.btn_edit)
         btns.addWidget(self.btn_delete)
 
@@ -143,92 +292,72 @@ class ShowManagerTab(QWidget):
         return panel
 
     def _build_playlist_panel(self) -> QWidget:
+        """Compact Playlist panel"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
 
-        grp = QGroupBox("Playlist")
+        grp = QGroupBox("📝 Playlist")
         grp_layout = QVBoxLayout(grp)
         self.playlist = QListWidget()
         self.playlist.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         grp_layout.addWidget(self.playlist)
         layout.addWidget(grp)
 
-        # Controls
-        controls = QHBoxLayout()
-        self.btn_prev = QPushButton("Prev")
-        self.btn_prev.clicked.connect(self._prev)
-        controls.addWidget(self.btn_prev)
-
-        self.btn_play = QPushButton("Play")
-        self.btn_play.clicked.connect(self._toggle_play)
-        controls.addWidget(self.btn_play)
-
-        self.btn_stop = QPushButton("Stop")
-        self.btn_stop.clicked.connect(self._stop)
-        controls.addWidget(self.btn_stop)
-
-        self.btn_next = QPushButton("Next")
-        self.btn_next.clicked.connect(self._next)
-        controls.addWidget(self.btn_next)
-
-        self.btn_loop = QPushButton("Loop: OFF")
-        self.btn_loop.setCheckable(True)
-        self.btn_loop.toggled.connect(self._toggle_loop)
-        controls.addWidget(self.btn_loop)
-
-        self.btn_shuffle = QPushButton("Shuffle: OFF")
-        self.btn_shuffle.setCheckable(True)
-        self.btn_shuffle.toggled.connect(self._toggle_shuffle)
-        controls.addWidget(self.btn_shuffle)
-
-        layout.addLayout(controls)
-
-        # Progress
-        self.progress = QProgressBar()
-        layout.addWidget(self.progress)
-        # Spotify-like time display
-        self.time_readout = QLabel("00:00 / 00:00")
-        layout.addWidget(self.time_readout)
-        self.lbl_status = QLabel("Ready")
-        layout.addWidget(self.lbl_status)
-
-        # Playlist ops
+        # Compact playlist operations
         ops = QHBoxLayout()
-        self.btn_remove = QPushButton("Remove")
+        self.btn_remove = QPushButton("➖ Remove")
         self.btn_remove.clicked.connect(self._remove_selected)
+        self.btn_remove.setToolTip("Remove selected from playlist")
         ops.addWidget(self.btn_remove)
-        self.btn_clear = QPushButton("Clear")
+        
+        self.btn_clear = QPushButton("🗑️ Clear")
         self.btn_clear.clicked.connect(self.playlist.clear)
+        self.btn_clear.setToolTip("Clear entire playlist")
         ops.addWidget(self.btn_clear)
         layout.addLayout(ops)
 
-        # Scheduler
-        sched_grp = QGroupBox("Scheduler")
+        return panel
+
+    def _build_scheduler_panel(self) -> QWidget:
+        """Compact Scheduler panel"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        sched_grp = QGroupBox("📅 Scheduler")
         sched_layout = QVBoxLayout(sched_grp)
+        
+        # Schedule controls
         row = QHBoxLayout()
         self.sched_dt = QDateTimeEdit(QDateTime.currentDateTime())
         self.sched_dt.setDisplayFormat("yyyy-MM-dd HH:mm")
         row.addWidget(self.sched_dt)
-        self.btn_schedule_selected = QPushButton("Schedule Selected Shows")
+        
+        self.btn_schedule_selected = QPushButton("➕")
         self.btn_schedule_selected.clicked.connect(self._schedule_selected)
+        self.btn_schedule_selected.setToolTip("Schedule selected shows")
+        self.btn_schedule_selected.setMaximumWidth(40)
         row.addWidget(self.btn_schedule_selected)
         sched_layout.addLayout(row)
 
-        self.chk_scheduler_enabled = QCheckBox("Enable Scheduler")
+        self.chk_scheduler_enabled = QCheckBox("✅ Enable Scheduler")
         self.chk_scheduler_enabled.setChecked(True)
         sched_layout.addWidget(self.chk_scheduler_enabled)
 
         self.sched_list = QListWidget()
         sched_layout.addWidget(self.sched_list)
         
-        # Scheduler management buttons
+        # Compact scheduler management buttons
         sched_btns = QHBoxLayout()
-        self.btn_remove_schedule = QPushButton("Remove Selected")
+        self.btn_remove_schedule = QPushButton("➖ Remove")
         self.btn_remove_schedule.clicked.connect(self._remove_selected_schedule)
+        self.btn_remove_schedule.setToolTip("Remove selected schedule")
         sched_btns.addWidget(self.btn_remove_schedule)
         
-        self.btn_clear_schedule = QPushButton("Clear All")
+        self.btn_clear_schedule = QPushButton("🗑️ Clear")
         self.btn_clear_schedule.clicked.connect(self._clear_all_schedules)
+        self.btn_clear_schedule.setToolTip("Clear all schedules")
         sched_btns.addWidget(self.btn_clear_schedule)
         sched_layout.addLayout(sched_btns)
         
@@ -243,8 +372,15 @@ class ShowManagerTab(QWidget):
 
     # ------------- Data loading -------------
     def _load_shows(self):
-        shows_dir = Path("data/shows")
+        # Use AppData for shows to avoid permission issues
+        if hasattr(self.parent(), 'get_app_data_dir'):
+            data_dir = self.parent().get_app_data_dir()
+            shows_dir = data_dir / "shows"
+        else:
+            shows_dir = Path("data/shows")
+        
         shows_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Loading shows from: {shows_dir}")
         self.shows_data.clear()
         self.table.setRowCount(0)
 
@@ -331,11 +467,11 @@ class ShowManagerTab(QWidget):
 
     def _toggle_loop(self, on: bool):
         self.is_loop = on
-        self.btn_loop.setText(f"Loop: {'ON' if on else 'OFF'}")
+        self.btn_loop.setText(f"🔁 Loop: {'ON' if on else 'OFF'}")
 
     def _toggle_shuffle(self, on: bool):
         self.is_shuffle = on
-        self.btn_shuffle.setText(f"Shuffle: {'ON' if on else 'OFF'}")
+        self.btn_shuffle.setText(f"🔀 Shuffle: {'ON' if on else 'OFF'}")
 
     def _prev(self):
         if self.playlist.count() == 0:
@@ -370,20 +506,25 @@ class ShowManagerTab(QWidget):
         if self.current_show_index < 0:
             self.current_show_index = 0
         self.is_playing = True
-        self.btn_play.setText("Pause")
+        self.btn_play.setText("⏸ Pause")
         self._play_current()
 
     def _pause(self):
         self.is_playing = False
-        self.btn_play.setText("Play")
+        self.btn_play.setText("▶ Play")
         if self.playback_engine:
             self.playback_engine.pause()
 
     def _stop(self):
         self.is_playing = False
-        self.btn_play.setText("Play")
+        self.btn_play.setText("▶ Play")
         self.progress.setValue(0)
         self.lbl_status.setText("Stopped")
+        
+        # Update Current Playing panel
+        self.lbl_current_show.setText("No Show Playing")
+        self.lbl_current_show.setStyleSheet("color: #666; padding: 20px;")
+        
         self.current_show_index = -1
         if self.playback_engine:
             self.playback_engine.stop()
@@ -404,6 +545,10 @@ class ShowManagerTab(QWidget):
 
         self.playlist.setCurrentRow(self.current_show_index)
         self.lbl_status.setText(f"Playing: {name}")
+        
+        # Update Current Playing panel
+        self.lbl_current_show.setText(f"▶ {name}")
+        self.lbl_current_show.setStyleSheet("color: #4CAF50; padding: 20px;")
 
         # Detect show format and use appropriate engine
         is_binary = data.get("is_binary_format", False)
@@ -703,7 +848,15 @@ class ShowManagerTab(QWidget):
         if not name:
             QMessageBox.warning(self, "Delete Show", "Select a show to delete")
             return
-        path = Path("data/shows") / f"{name}.json"
+        
+        # Use AppData for shows to avoid permission issues
+        if hasattr(self.parent(), 'get_app_data_dir'):
+            data_dir = self.parent().get_app_data_dir()
+            shows_dir = data_dir / "shows"
+        else:
+            shows_dir = Path("data/shows")
+        
+        path = shows_dir / f"{name}.json"
         if not path.exists():
             QMessageBox.warning(self, "Delete Show", f"Show file not found: {path.name}")
             return

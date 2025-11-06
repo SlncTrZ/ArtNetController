@@ -8,8 +8,8 @@ APP_NAME = 'DMXMaster-LTS'
 ROOT_DIR = Path(__file__).parent
 BUILD_DIR = ROOT_DIR / 'build'
 DIST_DIR = ROOT_DIR / 'dist'
-# Use the existing root spec file (do NOT create a new one)
-SPEC_FILE = ROOT_DIR / 'DMXMaster-LTS-1.0.2-Production.spec'
+# Use the version-specific spec file
+SPEC_FILE = ROOT_DIR / 'DMXMaster-LTS-1.0.5.spec'
 
 def run_cmd(cmd, desc):
     print(f'[RUN] {desc}')

@@ -1,6 +1,6 @@
 """
 Timecode Receiver System - V2.0 Professional Feature
-Supports MTC (MIDI Time Code), Net-timecode, and LTC (Linear Time Code)
+Supports Net-Timecode and Art-Net 4 Timecode
 
 Compatible with Depence and other professional lighting software.
 """
@@ -87,9 +87,6 @@ class TimecodeReceiver(QObject):
         self.last_timecode_time = time.time()
         payload = timecode_data.to_dict()
 
-        # Debug: show exact payload being emitted
-        logger.debug(f"🔔 Emitting timecode payload: {payload}")
-
         # Emit Qt signal (thread-safe) - GUI consumers should use this
         try:
             self.timecode_received.emit(payload)
@@ -117,123 +114,6 @@ class TimecodeReceiver(QObject):
                     except Exception as e:
                         logger.error(f"Error in stop callback: {e}")
                 self.last_timecode_time = 0
-
-class MTCReceiver(TimecodeReceiver):
-    """MTC (MIDI Time Code) Receiver for 30fps"""
-    
-    def __init__(self, midi_device: str = "auto"):
-        super().__init__()
-        self.midi_device = midi_device
-        self.midi_input = None
-        
-    def start(self) -> bool:
-        """Start MTC receiver"""
-        try:
-            # Try to import python-rtmidi
-            try:
-                import rtmidi
-                logger.info("✅ python-rtmidi library found")
-            except ImportError:
-                logger.error("❌ python-rtmidi not installed. Install with: pip install python-rtmidi")
-                logger.error("🔧 For Depence integration, MTC requires python-rtmidi library")
-                self.status_changed.emit("ERROR: python-rtmidi not installed")
-                return False
-            
-            # Create MIDI input
-            self.midi_input = rtmidi.MidiIn()
-            available_ports = self.midi_input.get_ports()
-            
-            logger.info(f"🎹 Found {len(available_ports)} MIDI devices:")
-            for i, port in enumerate(available_ports):
-                logger.info(f"   {i}: {port}")
-            
-            if not available_ports:
-                logger.warning("⚠️ No MIDI devices found for MTC")
-                logger.warning("🔧 For Depence: Ensure MIDI interface is connected and drivers installed")
-                self.status_changed.emit("No MIDI devices found - check MIDI interface")
-                return False
-            
-            # Auto-select first available port or find specific device
-            port_index = 0
-            if self.midi_device != "auto":
-                for i, port_name in enumerate(available_ports):
-                    if self.midi_device.lower() in port_name.lower():
-                        port_index = i
-                        break
-            
-            selected_port = available_ports[port_index]
-            logger.info(f"🎵 Opening MIDI port: {selected_port}")
-            self.midi_input.open_port(port_index)
-            self.midi_input.set_callback(self._on_midi_message)
-            
-            self.is_running = True
-            logger.info(f"🎹 MTC Receiver started on: {selected_port}")
-            self.status_changed.emit(f"MTC connected: {selected_port}")
-            
-            # Start timeout monitor thread
-            self._thread = threading.Thread(target=self._monitor_timeout, daemon=True)
-            self._thread.start()
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to start MTC receiver: {e}")
-            self.status_changed.emit(f"MTC Error: {e}")
-            return False
-    
-    def _on_midi_message(self, message, data=None):
-        """Handle incoming MIDI messages"""
-        msg_bytes, delta_time = message
-        
-        # Look for MTC Quarter Frame messages (0xF1)
-        if len(msg_bytes) == 2 and msg_bytes[0] == 0xF1:
-            self._process_mtc_quarter_frame(msg_bytes[1])
-    
-    def _process_mtc_quarter_frame(self, quarter_frame_data):
-        """Process MTC quarter frame message"""
-        # MTC Quarter Frame format: 0nnndddd
-        # nnn = message type (0-7), dddd = data nibble
-        message_type = (quarter_frame_data >> 4) & 0x07
-        data_nibble = quarter_frame_data & 0x0F
-        
-        # For simplicity, we'll trigger on frame low nibble (type 0)
-        if message_type == 0:  # Frame low nibble
-            # Simulate timecode (in real implementation, you'd reconstruct full timecode)
-            current_time = time.time()
-            total_seconds = int(current_time) % (24 * 3600)
-            
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            seconds = total_seconds % 60
-            frames = int((current_time - int(current_time)) * 30)  # 30fps
-            
-            timecode_data = TimecodeData(
-                hours=hours,
-                minutes=minutes,
-                seconds=seconds,
-                frames=frames,
-                fps=30.0,
-                source="MTC",
-                timestamp=current_time
-            )
-            
-            self._emit_timecode(timecode_data)
-    
-    def _monitor_timeout(self):
-        """Monitor for MTC timeout"""
-        while self.is_running:
-            self._check_timeout()
-            time.sleep(0.1)
-    
-    def stop(self):
-        """Stop MTC receiver"""
-        super().stop()
-        if self.midi_input:
-            try:
-                self.midi_input.close_port()
-            except:
-                pass
-            self.midi_input = None
 
 class NetTimecodeReceiver(TimecodeReceiver):
     """Net-timecode Receiver for 25fps (Depence compatible)"""
@@ -344,15 +224,15 @@ class ArtNet4TimecodeReceiver(TimecodeReceiver):
         try:
             if self.use_shared_socket and self.artnet_controller:
                 # Use shared socket approach - register callback with main Art-Net controller
-                logger.info("🎭 Using shared Art-Net socket for timecode reception")
+                logger.debug("Using shared Art-Net socket for timecode reception")
                 if hasattr(self.artnet_controller, 'register_timecode_callback'):
                     self.artnet_controller.register_timecode_callback(self._handle_shared_packet)
                     self.is_running = True
-                    logger.info("🎭 Art-Net 4 Timecode receiver registered with main controller")
+                    logger.info("Art-Net 4 Timecode receiver started (shared socket)")
                     self.status_changed.emit("Art-Net 4 Timecode using shared socket")
                     return True
                 else:
-                    logger.warning("⚠️ Main Art-Net controller doesn't support timecode callbacks")
+                    logger.warning("Main Art-Net controller doesn't support timecode callbacks")
                     # Fall back to separate socket
                     self.use_shared_socket = False
             
@@ -366,11 +246,11 @@ class ArtNet4TimecodeReceiver(TimecodeReceiver):
                 # Try to bind to alternative port if main port is taken
                 try:
                     self.socket.bind(('0.0.0.0', timecode_port))
-                    logger.info(f"🎭 Art-Net 4 Timecode receiver started on port {timecode_port} (alternate)")
+                    logger.info(f"Art-Net 4 Timecode receiver started on port {timecode_port}")
                 except OSError:
                     # Try multicast approach for receiving Art-Net
                     self.socket.bind(('', timecode_port + 1))
-                    logger.info(f"🎭 Art-Net 4 Timecode receiver started on port {timecode_port + 1}")
+                    logger.info(f"Art-Net 4 Timecode receiver started on port {timecode_port + 1}")
                 
                 # Start receive thread
                 self.is_running = True
@@ -471,8 +351,8 @@ class ArtNet4TimecodeReceiver(TimecodeReceiver):
                 )
                 
                 self._emit_timecode(timecode_data)
-                logger.info(f"🎭 Art-Net 4 Timecode: {hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d} @ {fps}fps")
-                logger.info(f"🔔 Emitting timecode to {len([self.callback_func] if self.callback_func else [])} callback(s)")
+                # Changed to DEBUG to reduce log spam
+                logger.debug(f"Art-Net 4 TC: {hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d} @ {fps}fps")
                 
         except Exception as e:
             logger.error(f"Error processing Art-Net timecode: {e}")
@@ -485,7 +365,7 @@ class ArtNet4TimecodeReceiver(TimecodeReceiver):
         if self.use_shared_socket and self.artnet_controller:
             if hasattr(self.artnet_controller, 'unregister_timecode_callback'):
                 self.artnet_controller.unregister_timecode_callback(self._handle_shared_packet)
-                logger.info("🚫 Timecode callback unregistered from Art-Net controller")
+                logger.debug("Timecode callback unregistered from Art-Net controller")
         
         if self.socket:
             try:
@@ -494,31 +374,12 @@ class ArtNet4TimecodeReceiver(TimecodeReceiver):
                 pass
             self.socket = None
 
-class LTCReceiver(TimecodeReceiver):
-    """LTC (Linear Time Code) Receiver - Audio-based timecode"""
-    
-    def __init__(self, audio_device: str = "auto"):
-        super().__init__()
-        self.audio_device = audio_device
-        
-    def start(self) -> bool:
-        """Start LTC receiver"""
-        logger.warning("🎧 LTC receiver not implemented yet - requires audio processing")
-        self.status_changed.emit("LTC not implemented yet")
-        return False
-
 class TimecodeManager:
-    """Manager for all timecode receivers"""
+    """Manager for Net-Timecode and Art-Net 4 Timecode receivers"""
     
     def __init__(self):
         self.receivers: Dict[str, TimecodeReceiver] = {}
         self.active_receivers = []
-        
-    def create_mtc_receiver(self, midi_device: str = "auto") -> MTCReceiver:
-        """Create MTC receiver"""
-        receiver = MTCReceiver(midi_device)
-        self.receivers["mtc"] = receiver
-        return receiver
     
     def create_net_timecode_receiver(self, port: int = 3040) -> NetTimecodeReceiver:
         """Create Net-timecode receiver"""
@@ -530,12 +391,6 @@ class TimecodeManager:
         """Create Art-Net 4 Timecode receiver for Depence compatibility"""
         receiver = ArtNet4TimecodeReceiver(port, artnet_controller)
         self.receivers["artnet4-timecode"] = receiver
-        return receiver
-    
-    def create_ltc_receiver(self, audio_device: str = "auto") -> LTCReceiver:
-        """Create LTC receiver"""
-        receiver = LTCReceiver(audio_device)
-        self.receivers["ltc"] = receiver
         return receiver
     
     def start_all(self) -> int:
@@ -572,7 +427,7 @@ def create_timecode_manager() -> TimecodeManager:
     return TimecodeManager()
 
 def test_timecode_receivers():
-    """Test function for timecode receivers"""
+    """Test function for Net-Timecode and Art-Net 4 Timecode receivers"""
     def on_timecode_received(data):
         print(f"📟 Timecode: {data['timecode']} ({data['fps']}fps) from {data['source']}")
     
@@ -582,16 +437,18 @@ def test_timecode_receivers():
     manager = create_timecode_manager()
     
     # Create receivers
-    mtc = manager.create_mtc_receiver()
     net_tc = manager.create_net_timecode_receiver()
+    artnet_tc = manager.create_artnet4_timecode_receiver()
     
     # Set callbacks
-    mtc.set_callbacks(on_timecode_received, on_timecode_stopped)
     net_tc.set_callbacks(on_timecode_received, on_timecode_stopped)
+    artnet_tc.set_callbacks(on_timecode_received, on_timecode_stopped)
     
     # Start receivers
     started = manager.start_all()
     print(f"Started {started} timecode receivers")
+    print("Supported: Net-Timecode (UDP:3040) and Art-Net 4 Timecode (OpCode 0x9700)")
+
     
     try:
         print("Listening for timecode... Press Ctrl+C to stop")

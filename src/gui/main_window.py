@@ -4,6 +4,7 @@ PyQt6 GUI với 5 tabs chính và tích hợp DMX Master
 """
 
 import sys
+import os
 import logging
 from pathlib import Path
 from PyQt6.QtWidgets import (
@@ -60,7 +61,12 @@ class MainWindow(QMainWindow):
         
         # Initialize managers
         self.config_manager = ConfigManager()
-        self.show_manager = ShowManager()
+        
+        # Initialize ShowManager with AppData path
+        shows_path = self.get_app_data_dir() / "shows"
+        shows_path.mkdir(parents=True, exist_ok=True)
+        self.show_manager = ShowManager(str(shows_path))
+        
         self.artnet_controller = None
         self.webserver = None
         
@@ -148,6 +154,7 @@ class MainWindow(QMainWindow):
         # Hardware Manager Tab
         self.hardware_manager_tab = HardwareManagerTab(self.config_manager)
         self.hardware_manager_tab.universe_mapping_changed.connect(self.on_universe_mapping_changed)
+        self.hardware_manager_tab.set_admin_mode(self._is_admin)  # Initialize with current admin status
         self.tab_widget.addTab(self.hardware_manager_tab, "Hardware Manager")
         
         # DMX View Tab
@@ -401,15 +408,15 @@ class MainWindow(QMainWindow):
     
     def get_app_data_dir(self):
         """Get application data directory (consistent across dev/build)"""
-        if hasattr(sys, '_MEIPASS'):
-            # Running as PyInstaller bundle
-            app_dir = Path(sys.executable).parent
+        # Always use AppData to avoid permission issues in Program Files
+        if sys.platform == 'win32':
+            appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+            app_dir = Path(appdata) / "DMX Master LTS"
         else:
-            # Running as script
-            app_dir = Path(__file__).parent.parent.parent
+            app_dir = Path.home() / ".dmx-master-lts"
         
         data_dir = app_dir / "data"
-        data_dir.mkdir(exist_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
     
     def setup_status_bar(self):
@@ -1001,6 +1008,9 @@ class MainWindow(QMainWindow):
         
         # Update Record tab admin mode too
         self.record_tab.set_admin_mode(is_admin)
+        
+        # Update Hardware Manager tab admin mode
+        self.hardware_manager_tab.set_admin_mode(is_admin)
         
         # Update menu actions
         self.login_action.setEnabled(not is_admin)
