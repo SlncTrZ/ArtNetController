@@ -957,9 +957,9 @@ class MainWindow(QMainWindow):
         """Open logs folder in file explorer"""
         import os
         import subprocess
-        from pathlib import Path
+        from src.system.crash_reporter import LOG_DIR
         
-        logs_dir = Path("logs").absolute()
+        logs_dir = LOG_DIR
         
         if logs_dir.exists():
             try:
