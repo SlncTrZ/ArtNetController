@@ -3,13 +3,13 @@ import os, sys, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 
-VERSION = '1.0.5'
+VERSION = '1.0.6'
 APP_NAME = 'DMXMaster-LTS'
 ROOT_DIR = Path(__file__).parent
 BUILD_DIR = ROOT_DIR / 'build'
 DIST_DIR = ROOT_DIR / 'dist'
 # Use the version-specific spec file
-SPEC_FILE = ROOT_DIR / 'DMXMaster-LTS-1.0.5.spec'
+SPEC_FILE = ROOT_DIR / 'DMXMaster-LTS-1.0.6.spec'
 
 def run_cmd(cmd, desc):
     print(f'[RUN] {desc}')

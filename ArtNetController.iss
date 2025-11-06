@@ -1,16 +1,16 @@
-; Inno Setup Script for DMX Master LTS 1.0.1
-; Professional Art-Net Lighting Controller Installer with Enhanced DMX View
+; Inno Setup Script for DMX Master LTS 1.0.6
+; Professional Art-Net Lighting Controller Installer
 
 #define MyAppName "DMX Master LTS"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.0.6"
 #define MyAppPublisher "Trương Công Định"
 #define MyAppURL "https://github.com/truongcongdinh97/DMX-Master"
-#define MyAppExeName "DMXMaster-LTS-1.0.5.exe"
+#define MyAppExeName "DMXMaster-LTS-1.0.6.exe"
 #define MyAppDescription "Professional Art-Net Lighting Controller with Enhanced DMX View"
 
 [Setup]
 ; Application info
-AppId={{DMX-MASTER-LTS-101-2025-11-05}}
+AppId={{DMX-MASTER-LTS-106-2025-11-06}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -28,7 +28,7 @@ AllowNoIcons=yes
 
 ; Output
 OutputDir=installer_output
-OutputBaseFilename=DMX-Master-LTS-1.0.5-Setup
+OutputBaseFilename=DMX-Master-LTS-1.0.6-Setup
 SetupIconFile=assets\DMXMaster.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -64,7 +64,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 
 [Files]
 ; Main executable
-Source: "dist\DMXMaster-LTS-1.0.5.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\DMXMaster-LTS-1.0.6.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Configuration and data directories
 Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
