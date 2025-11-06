@@ -301,7 +301,7 @@ class RecordTab(QWidget):
         
         # Enable/Disable Timecode Sync
         self.timecode_sync_checkbox = QCheckBox("⏸️ Wait for Timecode Signal Before Recording")
-        self.timecode_sync_checkbox.setChecked(False)  # OFF by default (V2.0.2 - Manual control preferred)
+        self.timecode_sync_checkbox.setChecked(True)  # ON by default - wait for timecode
         self.timecode_sync_checkbox.setToolTip(
             "⏸️ TIMECODE SYNC MODE:\n"
             "When enabled, clicking START RECORDING will NOT begin immediately.\n"
@@ -328,7 +328,7 @@ class RecordTab(QWidget):
             "Net-timecode (Network) - 25fps"
         ])
         self.timecode_source_combo.setCurrentText("Art-Net 4 Timecode (Depence) - Variable fps")
-        self.timecode_source_combo.setEnabled(True)  # Enabled by default since timecode is ON
+        self.timecode_source_combo.setEnabled(True)  # Enabled by default since timecode checkbox is ON
         timecode_source_layout.addWidget(self.timecode_source_combo)
         timecode_layout.addLayout(timecode_source_layout)
         
@@ -530,7 +530,6 @@ class RecordTab(QWidget):
         """Handle timecode sync checkbox toggle"""
         # Enable/disable timecode controls
         self.timecode_source_combo.setEnabled(checked)
-        self.midi_device_combo.setEnabled(checked)
         self.timecode_port_spinbox.setEnabled(checked)
         
         if checked:
