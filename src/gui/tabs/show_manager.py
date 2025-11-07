@@ -24,6 +24,9 @@ except Exception:  # pragma: no cover
 import time
 import random
 
+# Import get_user_data_dir helper
+from src.system.crash_reporter import get_user_data_dir
+
 # Import DMX Binary Player for binary show playback
 try:
     from show.dmx_recorder import DMXPlayer
@@ -375,13 +378,9 @@ class ShowManagerTab(QWidget):
     # ------------- Data loading -------------
     def _load_shows(self):
         # Use AppData for shows to avoid permission issues
-        if hasattr(self.parent(), 'get_app_data_dir'):
-            data_dir = self.parent().get_app_data_dir()
-            shows_dir = data_dir / "shows"
-        else:
-            shows_dir = Path("data/shows")
-        
+        shows_dir = get_user_data_dir() / "data" / "shows"
         shows_dir.mkdir(parents=True, exist_ok=True)
+        
         logger.info(f"Loading shows from: {shows_dir}")
         self.shows_data.clear()
         self.table.setRowCount(0)
@@ -434,6 +433,12 @@ class ShowManagerTab(QWidget):
                 self.table.setItem(r, 3, QTableWidgetItem(audio))
             except Exception as e:
                 print(f"Failed to load show {fp}: {e}")
+
+    def reload_shows(self):
+        """Public method to reload shows (for external calls)"""
+        logger.info("Reloading shows from storage...")
+        self._load_shows()
+        logger.info(f"Shows reloaded: {len(self.shows_data)} shows found")
 
     # ------------- Playlist ops -------------
     def _add_selected_to_playlist(self):
@@ -531,15 +536,27 @@ class ShowManagerTab(QWidget):
         if self.playback_engine:
             self.playback_engine.stop()
             self.playback_engine = None
+        
+        # V2.2: Resume DMX receiving when playback stops
+        if self.artnet_controller:
+            logger.info("✅ Resuming DMX receiving - Playback stopped")
+            self.artnet_controller.resume_dmx_receiving()
 
     def _play_current(self):
         if not (0 <= self.current_show_index < self.playlist.count()):
             return
         name = self.playlist.item(self.current_show_index).text()
+        logger.info(f"Starting playback for show: {name}")
         data = self.shows_data.get(name)
         if not data:
+            logger.error(f"Show '{name}' not found in shows_data")
             QMessageBox.warning(self, "Error", f"Show '{name}' not found")
             return
+
+        # V2.2: Pause DMX receiving during playback to prevent interference
+        if self.artnet_controller:
+            logger.info("🚫 Pausing DMX receiving - Playback Mode (prevents interference from Depence/other sources)")
+            self.artnet_controller.pause_dmx_receiving()
 
         # Stop previous engine
         if self.playback_engine:
@@ -554,11 +571,13 @@ class ShowManagerTab(QWidget):
 
         # Detect show format and use appropriate engine
         is_binary = data.get("is_binary_format", False)
+        logger.info(f"Show format: {'Binary' if is_binary else 'Legacy'}")
         
         if is_binary:
             # Binary format show (.dmxrec)
             binary_file_path = data.get("binary_file_path")
             if not binary_file_path:
+                logger.error(f"Binary file path not found for show '{name}'")
                 QMessageBox.warning(self, "Error", f"Binary file path not found for show '{name}'")
                 return
             
@@ -566,22 +585,32 @@ class ShowManagerTab(QWidget):
             duration = float(metadata.get("duration", 0))
             self._current_total = duration
             
-            print(f"Playing binary show: {name} ({binary_file_path})")
-            self.playback_engine = BinaryPlaybackEngine(binary_file_path, duration)
+            # V2.2: Get audio file path from metadata
+            audio_file = metadata.get("audio_file") or data.get("audio_file")
+            if audio_file:
+                logger.info(f"🎵 Audio file assigned: {audio_file}")
+            else:
+                logger.info("No audio file assigned for this show")
+            
+            logger.info(f"Creating BinaryPlaybackEngine: {binary_file_path}, duration={duration}")
+            self.playback_engine = BinaryPlaybackEngine(binary_file_path, duration, audio_file)
         else:
             # Legacy format show (scenes)
             total_seconds = float(data.get("duration", 0)) or self._estimate_total_duration(data)
             self._current_total = total_seconds
             
-            print(f"Playing legacy show: {name}")
+            logger.info(f"Creating SimplePlaybackEngine, duration={total_seconds}")
             self.playback_engine = SimplePlaybackEngine(data)
 
         # Connect signals (same for both engines)
+        logger.info("Connecting playback engine signals")
         self.playback_engine.progress_updated.connect(self._on_progress)
         self.playback_engine.time_tick.connect(self._on_time_tick)
         self.playback_engine.show_completed.connect(self._on_show_done)
         self.playback_engine.frame_ready.connect(self._emit_frame)
+        logger.info("Starting playback engine")
         self.playback_engine.start()
+        logger.info("Playback engine started")
 
     def _on_progress(self, pct: float):
         self.progress.setValue(int(pct))
@@ -591,6 +620,13 @@ class ShowManagerTab(QWidget):
         self._update_time_readout(elapsed, total)
 
     def _on_show_done(self):
+        logger.info("Show playback completed")
+        
+        # V2.2: Resume DMX receiving when show completes
+        if self.artnet_controller:
+            logger.info("✅ Resuming DMX receiving - Show completed")
+            self.artnet_controller.resume_dmx_receiving()
+        
         if self.is_playing:
             self._next()
 
@@ -851,30 +887,69 @@ class ShowManagerTab(QWidget):
             QMessageBox.warning(self, "Delete Show", "Select a show to delete")
             return
         
-        # Use AppData for shows to avoid permission issues
-        if hasattr(self.parent(), 'get_app_data_dir'):
-            data_dir = self.parent().get_app_data_dir()
-            shows_dir = data_dir / "shows"
-        else:
-            shows_dir = Path("data/shows")
+        # Use AppData for shows
+        shows_dir = get_user_data_dir() / "data" / "shows"
         
-        path = shows_dir / f"{name}.json"
-        if not path.exists():
-            QMessageBox.warning(self, "Delete Show", f"Show file not found: {path.name}")
+        # Find the actual file by scanning all JSON files and matching the name
+        target_json_path = None
+        target_dmxrec_path = None
+        
+        for json_file in shows_dir.glob("*.json"):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    metadata = data.get('metadata', {})
+                    show_name = metadata.get('name', json_file.stem)
+                    
+                    if show_name == name:
+                        # Found the file!
+                        target_json_path = json_file
+                        
+                        # Find corresponding .dmxrec file
+                        binary_file = metadata.get('binary_file')
+                        if binary_file:
+                            target_dmxrec_path = shows_dir / binary_file
+                        else:
+                            # Try with same stem
+                            target_dmxrec_path = json_file.with_suffix('.dmxrec')
+                        
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to read {json_file}: {e}")
+                continue
+        
+        if not target_json_path:
+            QMessageBox.warning(self, "Delete Show", f"Show file not found for: {name}")
+            logger.error(f"Could not find file for show: {name}")
             return
+        
         from PyQt6.QtWidgets import QMessageBox as _QMB
         if _QMB.question(self, "Confirm", f"Delete show '{name}'?",
                          _QMB.StandardButton.Yes | _QMB.StandardButton.No) == _QMB.StandardButton.Yes:
             try:
-                path.unlink()
+                # Delete both .json and .dmxrec files
+                if target_json_path.exists():
+                    target_json_path.unlink()
+                    logger.info(f"Deleted: {target_json_path}")
+                
+                if target_dmxrec_path and target_dmxrec_path.exists():
+                    target_dmxrec_path.unlink()
+                    logger.info(f"Deleted: {target_dmxrec_path}")
+                
+                # Reload shows
                 self._load_shows()
+                
                 # Remove from playlist if present
                 for i in reversed(range(self.playlist.count())):
                     if self.playlist.item(i).text() == name:
                         self.playlist.takeItem(i)
-                QMessageBox.information(self, "Delete Show", f"Deleted '{name}'")
+                
+                QMessageBox.information(self, "Delete Show", f"✅ Deleted '{name}' successfully")
+                logger.info(f"Show deleted and library reloaded: {name}")
+                
             except Exception as e:
                 QMessageBox.critical(self, "Delete Show", f"Failed to delete: {e}")
+                logger.error(f"Failed to delete show {name}: {e}", exc_info=True)
 
 
 class SimplePlaybackEngine(QThread):
@@ -968,24 +1043,27 @@ class SimplePlaybackEngine(QThread):
 
 
 class BinaryPlaybackEngine(QThread):
-    """Binary DMX show player using DMXPlayer for .dmxrec files"""
+    """Binary DMX show player using DMXPlayer for .dmxrec files + Audio support"""
 
     progress_updated = pyqtSignal(float)
     time_tick = pyqtSignal(float, float)  # elapsed, total seconds
     show_completed = pyqtSignal()
     frame_ready = pyqtSignal(int, bytes)
 
-    def __init__(self, binary_file_path: str, show_duration: float = 0):
+    def __init__(self, binary_file_path: str, show_duration: float = 0, audio_file_path: str = None):
         super().__init__()
         self.binary_file_path = binary_file_path
         self.show_duration = show_duration
+        self.audio_file_path = audio_file_path
         self._running = False
         self._paused = False
         self.dmx_player = None
+        self.audio_player = None  # Will be initialized based on available library
+        self._audio_started = False
 
     def run(self):
         if DMXPlayer is None:
-            print("DMXPlayer not available - cannot play binary show")
+            logger.error("DMXPlayer not available - cannot play binary show")
             return
 
         self._running = True
@@ -993,10 +1071,15 @@ class BinaryPlaybackEngine(QThread):
         start_time = time.monotonic()
 
         try:
+            # V2.2: Initialize audio player if audio file is provided
+            if self.audio_file_path:
+                self._init_audio_player()
+            
             # Open binary recording
+            logger.info(f"Opening binary show file: {self.binary_file_path}")
             self.dmx_player = DMXPlayer(self.binary_file_path, buffer_size=100)
             if not self.dmx_player.open():
-                print(f"Failed to open binary file: {self.binary_file_path}")
+                logger.error(f"Failed to open binary file: {self.binary_file_path}")
                 return
 
             # Get recording info
@@ -1005,23 +1088,39 @@ class BinaryPlaybackEngine(QThread):
             fps = info.get('fps', 40.0)
             frame_interval = 1.0 / fps
 
-            print(f"Playing binary show: {info['frame_count']} frames @ {fps} FPS, {total_duration:.1f}s")
+            logger.info(f"Playing binary show: {info['frame_count']} frames @ {fps} FPS, {total_duration:.1f}s")
+            
+            # V2.2: Start audio playback
+            if self.audio_player and not self._audio_started:
+                self._start_audio()
+                self._audio_started = True
 
             # Start multithreaded playback
             if not self.dmx_player.start_playback():
-                print("Failed to start DMX playback")
+                logger.error("Failed to start DMX playback")
                 return
 
             # Playback loop
             next_frame_time = time.monotonic()
             frames_played = 0
+            was_paused = False
 
             while self._running:
                 # Handle pause
                 while self._paused and self._running:
+                    if not was_paused:
+                        # V2.2: Pause audio when DMX pauses
+                        self._pause_audio()
+                        was_paused = True
+                    
                     time.sleep(0.05)
                     next_frame_time = time.monotonic()  # Reset timing after pause
                     continue
+                
+                # V2.2: Resume audio after pause
+                if was_paused:
+                    self._resume_audio()
+                    was_paused = False
 
                 if not self._running:
                     break
@@ -1059,21 +1158,138 @@ class BinaryPlaybackEngine(QThread):
                 self.show_completed.emit()
 
         except Exception as e:
-            print(f"Error during binary playback: {e}")
+            logger.exception(f"Error during binary playback: {e}")
         finally:
+            # V2.2: Stop audio
+            self._stop_audio()
+            
             if self.dmx_player:
                 try:
                     self.dmx_player.stop_playback()
                     self.dmx_player.close()
                 except Exception as e:
-                    print(f"Error closing DMX player: {e}")
+                    logger.error(f"Error closing DMX player: {e}")
                 self.dmx_player = None
+    
+    def _init_audio_player(self):
+        """Initialize audio player using available library (V2.2)"""
+        try:
+            # Try pygame first (more reliable for audio)
+            import pygame
+            pygame.mixer.init()
+            self.audio_player = {'type': 'pygame'}
+            logger.info(f"🎵 Audio player initialized (pygame): {self.audio_file_path}")
+            return
+        except ImportError:
+            pass
+        
+        try:
+            # Fallback to PyQt6 Multimedia
+            from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+            from PyQt6.QtCore import QUrl
+            
+            self.audio_player = {
+                'type': 'qt',
+                'player': QMediaPlayer(),
+                'audio_output': QAudioOutput()
+            }
+            self.audio_player['player'].setAudioOutput(self.audio_player['audio_output'])
+            logger.info(f"🎵 Audio player initialized (Qt): {self.audio_file_path}")
+            return
+        except ImportError:
+            pass
+        
+        logger.warning("⚠️ No audio library available (install pygame or PyQt6-Multimedia)")
+        self.audio_player = None
+    
+    def _start_audio(self):
+        """Start audio playback (V2.2)"""
+        if not self.audio_player or not self.audio_file_path:
+            return
+        
+        try:
+            from pathlib import Path
+            audio_path = Path(self.audio_file_path)
+            
+            if not audio_path.exists():
+                logger.error(f"❌ Audio file not found: {audio_path}")
+                return
+            
+            if self.audio_player['type'] == 'pygame':
+                import pygame
+                pygame.mixer.music.load(str(audio_path))
+                pygame.mixer.music.play()
+                logger.info(f"▶️ Audio playback started (pygame): {audio_path.name}")
+            
+            elif self.audio_player['type'] == 'qt':
+                from PyQt6.QtCore import QUrl
+                self.audio_player['player'].setSource(QUrl.fromLocalFile(str(audio_path)))
+                self.audio_player['player'].play()
+                logger.info(f"▶️ Audio playback started (Qt): {audio_path.name}")
+        
+        except Exception as e:
+            logger.error(f"Failed to start audio playback: {e}")
+    
+    def _stop_audio(self):
+        """Stop audio playback (V2.2)"""
+        if not self.audio_player:
+            return
+        
+        try:
+            if self.audio_player['type'] == 'pygame':
+                import pygame
+                pygame.mixer.music.stop()
+                logger.debug("⏹️ Audio stopped (pygame)")
+            
+            elif self.audio_player['type'] == 'qt':
+                self.audio_player['player'].stop()
+                logger.debug("⏹️ Audio stopped (Qt)")
+        
+        except Exception as e:
+            logger.error(f"Error stopping audio: {e}")
+    
+    def _pause_audio(self):
+        """Pause audio playback (V2.2)"""
+        if not self.audio_player:
+            return
+        
+        try:
+            if self.audio_player['type'] == 'pygame':
+                import pygame
+                pygame.mixer.music.pause()
+            
+            elif self.audio_player['type'] == 'qt':
+                self.audio_player['player'].pause()
+        
+        except Exception as e:
+            logger.error(f"Error pausing audio: {e}")
+    
+    def _resume_audio(self):
+        """Resume audio playback (V2.2)"""
+        if not self.audio_player:
+            return
+        
+        try:
+            if self.audio_player['type'] == 'pygame':
+                import pygame
+                pygame.mixer.music.unpause()
+            
+            elif self.audio_player['type'] == 'qt':
+                self.audio_player['player'].play()
+        
+        except Exception as e:
+            logger.error(f"Error resuming audio: {e})")
 
     def pause(self):
         self._paused = True
+        # V2.2: Pause audio as well
+        self._pause_audio()
 
     def stop(self):
         self._running = False
+        # V2.2: Stop audio
+        self._stop_audio()
+        
         if self.dmx_player:
             try:
                 self.dmx_player.stop_playback()

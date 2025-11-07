@@ -162,6 +162,9 @@ class ArtNetController:
         # V2.0: Output pause control (for recording safety)
         self.output_paused = False
         
+        # V2.2: DMX receiving control (for playback mode - prevent interference)
+        self.receiving_paused = False
+        
         # V2.0: Timecode callback support
         self.timecode_callbacks = []
 
@@ -192,8 +195,11 @@ class ArtNetController:
             
             logger.info(f"Art-Net controller started on {self.bind_ip}:{self.port}")
             
-            # Send initial poll
-            self.poll_network()
+            # V2.2: REMOVED auto-poll on startup
+            # User complaint: Software sends ArtPoll Reply without receiving ArtPoll request
+            # FIX: Do NOT send initial poll automatically
+            # User must click "Ping Device" button in Hardware Manager to scan network
+            logger.info("Art-Net receiver ready - use 'Ping Device' to scan network")
             
             return True
             
@@ -210,6 +216,16 @@ class ArtNetController:
         """Resume DMX output (V2.0)"""
         self.output_paused = False
         logger.info("Art-Net output RESUMED")
+    
+    def pause_dmx_receiving(self):
+        """Pause DMX receiving (V2.2 - for playback mode to prevent interference)"""
+        self.receiving_paused = True
+        logger.info("⏸️ Art-Net DMX RECEIVING PAUSED (Playback Mode)")
+    
+    def resume_dmx_receiving(self):
+        """Resume DMX receiving (V2.2)"""
+        self.receiving_paused = False
+        logger.info("▶️ Art-Net DMX RECEIVING RESUMED")
     
     def register_timecode_callback(self, callback_func: Callable):
         """Register callback for timecode packets (V2.0)"""
@@ -455,6 +471,11 @@ class ArtNetController:
     
     def _handle_dmx_packet(self, payload: bytes, addr: tuple):
         """Xử lý DMX packet với optimization để giảm load"""
+        # V2.2: Skip receiving if paused (playback mode - prevent interference)
+        if self.receiving_paused:
+            logger.debug(f"DMX receiving paused - ignoring packet from {addr[0]}")
+            return
+        
         logger.debug(f"Processing DMX packet from {addr[0]}")
         dmx_info = ArtNetDMX.unpack_dmx(payload)
         if not dmx_info:
@@ -593,11 +614,18 @@ class ArtNetController:
                 long_name = f"Art-Net Node at {ip_address}"
             
             # Parse NumPorts (byte 164-165, High byte + Low byte)
-            # Byte 164: NumPortsHi (usually 0)
-            # Byte 165: NumPortsLo (actual port count)
+            # CRITICAL FIX V2.2: Art-Net spec says Hi byte FIRST (at byte 164)
+            # Byte 164: NumPortsHi (MSB) 
+            # Byte 165: NumPortsLo (LSB)
+            # Fix: 65280 (0xFF00) was caused by reading bytes in wrong order
+            # Example: Device sends [0x00, 0x08] → should be 8, not 2048
             num_ports_hi = payload[164] if len(payload) > 164 else 0
             num_ports_lo = payload[165] if len(payload) > 165 else 1
             port_count = (num_ports_hi << 8) | num_ports_lo
+            
+            # Debug: Log raw bytes
+            if len(payload) > 165:
+                logger.debug(f"NumPorts raw bytes: Hi=0x{num_ports_hi:02X}, Lo=0x{num_ports_lo:02X}, Result={port_count}")
             
             # V2.0: Hỗ trợ unlimited ports - không giới hạn
             # Validate port count (chỉ check hợp lệ, không cap)
@@ -663,6 +691,7 @@ class ArtNetController:
         Xử lý Art-Net Poll - Respond với thông tin node
         V2.0: Cho phép các thiết bị khác scan được DMX Master
         V2.1: Gửi nhiều PollReply packets để hỗ trợ unlimited universes
+        V2.2: CHỈ gửi Reply khi nhận được Poll request hợp lệ (FIX: không tự gửi)
         
         Cơ chế tương thích với Depence/Resolume/MADRIX:
         - Mỗi PollReply quảng bá 4 universes liên tục qua SwIn
@@ -674,8 +703,15 @@ class ArtNetController:
         - 8 universes → 2 PollReply: S0/SwIn[0-3], S0/SwIn[4-7]
         - 16 universes → 4 PollReply: S0/SwIn[0-3,4-7,8-11,12-15]
         - 32 universes → 8 PollReply: S0(4 replies) + S1(4 replies)
+        
+        CRITICAL: Function này CHỈ được gọi khi nhận ArtPoll OpCode 0x2000
         """
-        logger.debug(f"Received Art-Net Poll from {addr[0]}")
+        # Validate payload là ArtPoll hợp lệ (ít nhất 2 bytes: flags + priority)
+        if len(payload) < 2:
+            logger.warning(f"Invalid ArtPoll packet from {addr[0]}: payload too short ({len(payload)} bytes)")
+            return
+        
+        logger.debug(f"Received valid Art-Net Poll from {addr[0]}, responding...")
         
         try:
             # Đọc max_universes từ config
@@ -689,7 +725,7 @@ class ArtNetController:
             num_replies = (max_universes + 3) // 4  # Round up division
             num_replies = min(num_replies, 64)  # Max 64 replies = 256 universes
             
-            logger.info(f"Sending {num_replies} PollReply packets for {max_universes} universes")
+            logger.debug(f"Sending {num_replies} PollReply packets for {max_universes} universes")
             
             # Gửi PollReply cho mỗi block 4 universes
             for i in range(num_replies):
@@ -706,7 +742,7 @@ class ArtNetController:
                 start_uni = base_universe
                 end_uni = min(start_uni + 3, max_universes - 1)
                 
-                logger.info(f"Sent PollReply #{i+1}/{num_replies}: SubNet={subnet} SwIn={sw_in} → Universe {start_uni}-{end_uni} to {addr[0]}")
+                logger.debug(f"Sent PollReply #{i+1}/{num_replies}: SubNet={subnet} SwIn={sw_in} → Universe {start_uni}-{end_uni} to {addr[0]}")
             
         except Exception as e:
             logger.error(f"Error sending PollReply: {e}")
@@ -801,12 +837,15 @@ class ArtNetController:
         packet.extend(node_report_bytes)
         packet.extend(b'\x00' * (64 - len(node_report_bytes)))
         
-        # NumPorts (2 bytes) - Hi/Lo byte
+        # NumPorts (2 bytes) - Hi/Lo byte  
+        # CRITICAL V2.2: Art-Net specification says Hi byte FIRST
+        # Byte 164: NumPortsHi (MSB)
+        # Byte 165: NumPortsLo (LSB)
         # Always advertise 4 ports (legacy Art-Net limit for arrays)
         # Each reply advertises 4 consecutive universes via SwIn
         num_ports = 4  # Fixed at 4 (legacy arrays are 4-long)
-        packet.append(num_ports >> 8)  # Hi byte
-        packet.append(num_ports & 0xFF)  # Lo byte
+        packet.append(num_ports >> 8)  # Hi byte (MSB) first
+        packet.append(num_ports & 0xFF)  # Lo byte (LSB) second
         
         # PortTypes (4 bytes) - Type of each port
         # 0x40 = Input to Art-Net (node receives DMX via Art-Net)

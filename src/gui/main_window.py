@@ -645,15 +645,13 @@ class MainWindow(QMainWindow):
     
     def on_dmx_received(self, universe: int, dmx_data: bytes, source_ip: str):
         """Callback when DMX data received - THREAD SAFE VERSION"""
-        logger.info(f"DMX received callback: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
+        logger.debug(f"DMX received callback: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
         
         # Store source_ip for signal
         self._last_source_ip = source_ip
         
         # ONLY emit signal - let slot handle UI updates in main thread
-        logger.info(f"Emitting DMX signal to GUI thread...")
         self.dmx_data_updated.emit(universe, dmx_data)
-        logger.info(f"DMX signal emitted successfully")
         
         # Record if enabled (safe from any thread)
         if hasattr(self, 'record_tab') and self.record_tab.is_recording():
@@ -666,13 +664,11 @@ class MainWindow(QMainWindow):
         """SLOT: Handle DMX data updates in main GUI thread - THREAD SAFE"""
         try:
             source_ip = getattr(self, '_last_source_ip', 'Unknown')
-            logger.info(f"DMX slot received: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
+            logger.debug(f"DMX slot received: Universe {universe}, {len(dmx_data)} channels from {source_ip}")
             
             # Update DMX View tab safely in main thread
             if hasattr(self, 'dmx_view_tab'):
-                logger.info(f"Updating DMX View tab...")
                 self.dmx_view_tab.update_received_dmx(universe, dmx_data, source_ip)
-                logger.info(f"DMX View updated successfully")
             else:
                 logger.warning(f"⚠️ DMX View tab not found!")
                 
@@ -790,16 +786,10 @@ class MainWindow(QMainWindow):
             try:
                 # Reload shows in Show Manager tab
                 if hasattr(self, 'show_manager_tab'):
-                    # Try different methods to refresh shows
-                    if hasattr(self.show_manager_tab, 'load_shows'):
-                        self.show_manager_tab.load_shows()
-                    elif hasattr(self.show_manager_tab, 'refresh_shows'):
-                        self.show_manager_tab.refresh_shows()
-                    elif hasattr(self.show_manager_tab, 'update_show_list'):
-                        self.show_manager_tab.update_show_list()
+                    if hasattr(self.show_manager_tab, 'reload_shows'):
+                        self.show_manager_tab.reload_shows()
                     else:
-                        # Fallback: recreate tab or trigger refresh
-                        logger.warning("No refresh method found in ShowManagerTab")
+                        logger.warning("ShowManagerTab does not have reload_shows method")
                         
                     self.status_bar.showMessage("✅ Shows reloaded successfully", 3000)
                     logger.info("Shows reloaded from storage")

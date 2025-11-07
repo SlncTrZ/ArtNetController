@@ -95,6 +95,9 @@ class HardwareManagerTab(QWidget):
         # Universe mapping: {ip_address: {port_number: universe}}
         self.universe_mapping = self._load_universe_mapping()
         
+        # Broadcast control
+        self.broadcast_enabled = True  # Default: broadcast enabled
+        
         self.init_ui()
         self.init_timer()
     
@@ -127,6 +130,22 @@ class HardwareManagerTab(QWidget):
                 self.clear_button.setToolTip("🔒 Admin access required to clear devices")
             else:
                 self.clear_button.setToolTip("Clear all discovered devices")
+        
+        # Add Manual button (admin can add manually configured devices)
+        if hasattr(self, 'add_manual_button'):
+            self.add_manual_button.setEnabled(self._is_admin)
+            if not self._is_admin:
+                self.add_manual_button.setToolTip("🔒 Admin access required to add devices manually")
+            else:
+                self.add_manual_button.setToolTip("Add device by IP address for unicast (no scan required)")
+        
+        # Broadcast checkbox (admin can control broadcast)
+        if hasattr(self, 'broadcast_checkbox'):
+            self.broadcast_checkbox.setEnabled(self._is_admin)
+            if not self._is_admin:
+                self.broadcast_checkbox.setToolTip("🔒 Admin access required to change broadcast settings")
+            else:
+                self.broadcast_checkbox.setToolTip("Enable/disable broadcast to 255.255.255.255\nDisable for unicast-only mode")
         
         # Update status message
         if not self._is_admin:
@@ -280,6 +299,19 @@ class HardwareManagerTab(QWidget):
         self.ping_device_button.clicked.connect(self.ping_device)
         action_layout.addWidget(self.ping_device_button)
         
+        # Broadcast enable/disable checkbox
+        self.broadcast_checkbox = QCheckBox("Enable Broadcast")
+        self.broadcast_checkbox.setChecked(True)  # Mặc định bật
+        self.broadcast_checkbox.setToolTip("Enable/disable broadcast to 255.255.255.255\nDisable for unicast-only mode")
+        self.broadcast_checkbox.stateChanged.connect(self.on_broadcast_changed)
+        action_layout.addWidget(self.broadcast_checkbox)
+        
+        # Add device manually button
+        self.add_manual_button = QPushButton("Add Device Manually")
+        self.add_manual_button.setToolTip("Add device by IP address for unicast (no scan required)")
+        self.add_manual_button.clicked.connect(self.add_device_manually)
+        action_layout.addWidget(self.add_manual_button)
+        
         action_layout.addStretch()
         details_layout.addLayout(action_layout)
         
@@ -364,6 +396,51 @@ class HardwareManagerTab(QWidget):
         # Cập nhật trạng thái nếu đang quét
         if self.is_scanning:
             self.scan_status.setText(f"Scanning... Found {len(self.discovered_nodes)} devices")
+    
+    def add_node_to_table(self, node):
+        """Add a single node to the table"""
+        row = self.devices_table.rowCount()
+        self.devices_table.insertRow(row)
+        
+        # IP Address
+        self.devices_table.setItem(row, 0, QTableWidgetItem(node.ip_address))
+        
+        # Short Name
+        self.devices_table.setItem(row, 1, QTableWidgetItem(node.short_name))
+        
+        # Long Name
+        self.devices_table.setItem(row, 2, QTableWidgetItem(node.long_name))
+        
+        # Universe
+        self.devices_table.setItem(row, 3, QTableWidgetItem(str(node.universe)))
+        
+        # Ports
+        self.devices_table.setItem(row, 4, QTableWidgetItem(str(node.port_count)))
+        
+        # Mapped Universes
+        mapped_info = self._get_mapped_info(node.ip_address)
+        mapped_item = QTableWidgetItem(mapped_info)
+        self.devices_table.setItem(row, 5, mapped_item)
+        
+        # Status
+        import time
+        age = time.time() - node.last_seen
+        if age < 60:
+            status = "Online"
+        elif age < 300:
+            status = "Recent"
+        else:
+            status = "Offline"
+        
+        status_item = QTableWidgetItem(status)
+        if status == "Online":
+            status_item.setBackground(Qt.GlobalColor.green)
+        elif status == "Recent":
+            status_item.setBackground(Qt.GlobalColor.yellow)
+        else:
+            status_item.setBackground(Qt.GlobalColor.red)
+        
+        self.devices_table.setItem(row, 6, status_item)
     
     def refresh_devices(self):
         """Refresh devices table"""
@@ -606,6 +683,143 @@ class HardwareManagerTab(QWidget):
                         "Ping Error",
                         f"Failed to ping {ip_address}: {str(e)}"
                     )
+    
+    def on_broadcast_changed(self, state):
+        """Handle broadcast checkbox state change"""
+        enabled = (state == Qt.CheckState.Checked.value)
+        
+        # Update broadcast setting in ArtNet controller if available
+        if hasattr(self, 'artnet_controller') and self.artnet_controller:
+            # Store broadcast preference
+            self.broadcast_enabled = enabled
+            status = "enabled" if enabled else "disabled"
+            logger.info(f"Broadcast {status}")
+            
+            # Show notification
+            self.scan_status.setText(f"Broadcast {status}")
+        else:
+            self.broadcast_enabled = enabled
+            logger.info(f"Broadcast preference set to: {enabled}")
+    
+    def add_device_manually(self):
+        """Add device manually by IP address"""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QDialogButtonBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Device Manually")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Form
+        form_layout = QFormLayout()
+        
+        # IP Address
+        ip_input = QLineEdit()
+        ip_input.setPlaceholderText("192.168.1.100")
+        ip_input.setToolTip("Enter device IP address")
+        form_layout.addRow("IP Address:", ip_input)
+        
+        # Short Name
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("My Device")
+        name_input.setToolTip("Device name (optional)")
+        form_layout.addRow("Device Name:", name_input)
+        
+        # Port Count
+        port_count_spin = QSpinBox()
+        port_count_spin.setRange(1, 4)
+        port_count_spin.setValue(1)
+        port_count_spin.setToolTip("Number of ArtNet ports")
+        form_layout.addRow("Port Count:", port_count_spin)
+        
+        layout.addLayout(form_layout)
+        
+        # Info label
+        info_label = QLabel(
+            "ℹ️ This will add a device for unicast communication.\n"
+            "You can configure universe mapping after adding."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addWidget(info_label)
+        
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            ip_address = ip_input.text().strip()
+            device_name = name_input.text().strip() or f"Manual_{ip_address}"
+            port_count = port_count_spin.value()
+            
+            # Validate IP
+            import re
+            ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+            if not re.match(ip_pattern, ip_address):
+                QMessageBox.warning(
+                    self,
+                    "Invalid IP",
+                    "Please enter a valid IP address (e.g., 192.168.1.100)"
+                )
+                return
+            
+            # Check if already exists
+            if ip_address in self.discovered_nodes:
+                QMessageBox.information(
+                    self,
+                    "Device Exists",
+                    f"Device {ip_address} already exists in the list."
+                )
+                return
+            
+            # Create manual node
+            from src.artnet.artnet_receiver import ArtNetNode
+            import time
+            
+            manual_node = ArtNetNode(
+                ip_address=ip_address,
+                port=6454,
+                short_name=device_name,
+                long_name=f"{device_name} (Manual)",
+                universe=0,
+                port_count=port_count,
+                last_seen=time.time()
+            )
+            
+            # Add to discovered nodes
+            self.discovered_nodes[ip_address] = manual_node
+            
+            # Add to table
+            self.add_node_to_table(manual_node)
+            
+            # Update device count
+            self.device_count_label.setText(f"Devices: {len(self.discovered_nodes)}")
+            
+            logger.info(f"Manually added device: {ip_address} ({device_name})")
+            
+            # Show success message
+            QMessageBox.information(
+                self,
+                "Device Added",
+                f"✅ Device added successfully!\n\n"
+                f"IP: {ip_address}\n"
+                f"Name: {device_name}\n"
+                f"Ports: {port_count}\n\n"
+                f"You can now configure universe mapping for this device."
+            )
+            
+            # Auto-select the new device
+            for row_idx in range(self.devices_table.rowCount()):
+                ip_item = self.devices_table.item(row_idx, 0)
+                if ip_item and ip_item.text() == ip_address:
+                    self.devices_table.selectRow(row_idx)
+                    break
     
     def update_last_seen(self):
         """Update last seen times in table"""

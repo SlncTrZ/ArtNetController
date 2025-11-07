@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                            QPushButton, QLabel, QTableWidget, QTableWidgetItem,
                            QProgressBar, QSlider, QSpinBox, QTextEdit,
                            QFileDialog, QMessageBox, QHeaderView, QComboBox,
-                           QCheckBox, QSplitter, QDialog, QLineEdit)
+                           QCheckBox, QSplitter, QDialog, QLineEdit, QInputDialog)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 
@@ -21,90 +21,10 @@ from src.system.timecode_receiver import (
     TimecodeManager, NetTimecodeReceiver, ArtNet4TimecodeReceiver
 )
 from src.system.crash_reporter import get_user_data_dir
+from src.show.dmx_recorder import DMXRecorder
+from src.gui.dialogs.create_show_dialog import CreateShowDialog
 
 logger = logging.getLogger(__name__)
-
-# Binary DMX Recording Format Functions
-def write_dmxrec_file(file_path: Path, dmx_data_list: list):
-    """
-    Write DMX data to binary .dmxrec file
-    Format: [frame_count][frame1][frame2]...[frameN]
-    Frame format: [timestamp_ms(4bytes)][universe(2bytes)][channel_count(2bytes)][data(Nbytes)]
-    """
-    with open(file_path, 'wb') as f:
-        # Write frame count (4 bytes)
-        frame_count = len(dmx_data_list)
-        f.write(struct.pack('<I', frame_count))
-        
-        for frame in dmx_data_list:
-            # timestamp_ms (4 bytes, unsigned int)
-            timestamp_ms = int(frame['timestamp'] * 1000)
-            f.write(struct.pack('<I', timestamp_ms))
-            
-            # universe (2 bytes, unsigned short)
-            f.write(struct.pack('<H', frame['universe']))
-            
-            # channel_count (2 bytes, unsigned short)
-            channel_count = len(frame['data'])
-            f.write(struct.pack('<H', channel_count))
-            
-            # DMX data (N bytes, each channel is 1 byte)
-            f.write(bytes(frame['data']))
-    
-    logger.info(f"Binary DMX file written: {file_path} ({frame_count} frames)")
-
-def read_dmxrec_file(file_path: Path):
-    """
-    Read DMX data from binary .dmxrec file
-    Returns list of DMX frames
-    """
-    dmx_frames = []
-    
-    with open(file_path, 'rb') as f:
-        # Read frame count
-        frame_count_data = f.read(4)
-        if len(frame_count_data) != 4:
-            raise ValueError("Invalid .dmxrec file: missing frame count")
-        
-        frame_count = struct.unpack('<I', frame_count_data)[0]
-        logger.info(f"Reading {frame_count} frames from {file_path}")
-        
-        for i in range(frame_count):
-            # Read timestamp (4 bytes)
-            timestamp_data = f.read(4)
-            if len(timestamp_data) != 4:
-                logger.warning(f"Incomplete frame {i}: missing timestamp")
-                break
-            timestamp_ms = struct.unpack('<I', timestamp_data)[0]
-            
-            # Read universe (2 bytes)
-            universe_data = f.read(2)
-            if len(universe_data) != 2:
-                logger.warning(f"Incomplete frame {i}: missing universe")
-                break
-            universe = struct.unpack('<H', universe_data)[0]
-            
-            # Read channel count (2 bytes)
-            channel_count_data = f.read(2)
-            if len(channel_count_data) != 2:
-                logger.warning(f"Incomplete frame {i}: missing channel count")
-                break
-            channel_count = struct.unpack('<H', channel_count_data)[0]
-            
-            # Read DMX data (N bytes)
-            dmx_data = f.read(channel_count)
-            if len(dmx_data) != channel_count:
-                logger.warning(f"Incomplete frame {i}: expected {channel_count} channels, got {len(dmx_data)}")
-                break
-            
-            dmx_frames.append({
-                'timestamp': timestamp_ms / 1000.0,
-                'universe': universe,
-                'data': list(dmx_data)
-            })
-    
-    logger.info(f"Successfully read {len(dmx_frames)} frames from {file_path}")
-    return dmx_frames
 
 class RecordTab(QWidget):
     """Tab Record - Chỉ dành cho admin"""
@@ -132,6 +52,12 @@ class RecordTab(QWidget):
         # V2.0.2: Timecode start detection state
         self.last_timecode_value = None  # Last received timecode in seconds
         self.timecode_running = False     # Whether timecode is currently running
+        
+        # V2.0.3: Auto-stop on timecode end
+        self.last_timecode_update_time = None  # Timestamp of last timecode update
+        self.timecode_timeout_seconds = 3.0    # Detect timeout after 3 seconds
+        self.timecode_auto_trim_seconds = 3.0  # Auto-trim this many seconds after stop
+        self.timecode_watchdog_timer = None    # Timer to check timecode timeout
         
         # Initialize timecode system
         self.timecode_manager = TimecodeManager()
@@ -272,7 +198,11 @@ class RecordTab(QWidget):
         
         # Auto trim silence
         self.auto_trim_checkbox = QCheckBox("Auto Trim Silence")
-        self.auto_trim_checkbox.setChecked(True)
+        self.auto_trim_checkbox.setChecked(False)  # OFF by default (timecode recording handles timing)
+        self.auto_trim_checkbox.setToolTip(
+            "Automatically remove silence at start/end of recording.\n"
+            "Not needed when using timecode sync."
+        )
         settings_layout.addWidget(self.auto_trim_checkbox)
         
         # Disable DMX output during recording (V2.0 - Safety feature)
@@ -371,11 +301,15 @@ class RecordTab(QWidget):
         threshold_layout.addWidget(QLabel("Silence Threshold:"))
         self.silence_threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.silence_threshold_slider.setRange(0, 255)
-        self.silence_threshold_slider.setValue(5)
+        self.silence_threshold_slider.setValue(0)  # 0 by default (timecode handles timing)
+        self.silence_threshold_slider.setToolTip(
+            "DMX value threshold for detecting silence.\n"
+            "Only used when Auto Trim is enabled."
+        )
         self.silence_threshold_slider.valueChanged.connect(self.update_threshold_label)
         threshold_layout.addWidget(self.silence_threshold_slider)
         
-        self.threshold_label = QLabel("5")
+        self.threshold_label = QLabel("0")
         threshold_layout.addWidget(self.threshold_label)
         settings_layout.addLayout(threshold_layout)
         
@@ -444,6 +378,12 @@ class RecordTab(QWidget):
         self.load_recording_button.setEnabled(False)
         self.load_recording_button.clicked.connect(self.load_recording)
         table_controls.addWidget(self.load_recording_button)
+        
+        self.move_to_shows_button = QPushButton("📤 Move to Shows")
+        self.move_to_shows_button.setEnabled(False)
+        self.move_to_shows_button.setToolTip("Move recording to Show Manager library")
+        self.move_to_shows_button.clicked.connect(self.move_recording_to_shows)
+        table_controls.addWidget(self.move_to_shows_button)
         
         self.delete_recording_button = QPushButton("Delete")
         self.delete_recording_button.setEnabled(False)
@@ -782,6 +722,37 @@ class RecordTab(QWidget):
         fps = timecode_data.get('fps', 30)
         source = timecode_data.get('source', 'Unknown')
         
+        # Parse timecode to seconds for watchdog detection
+        try:
+            tc_parts = timecode_string.split(':')
+            if len(tc_parts) == 4:
+                hours = int(tc_parts[0])
+                minutes = int(tc_parts[1])
+                seconds = int(tc_parts[2])
+                frames = int(tc_parts[3])
+                current_tc_seconds = hours * 3600 + minutes * 60 + seconds + (frames / fps)
+            else:
+                current_tc_seconds = 0.0
+        except:
+            current_tc_seconds = 0.0
+        
+        # V2.0.3: Update watchdog timer ONLY if timecode VALUE changed
+        # This prevents false updates when Depence keeps sending same timecode after show ends
+        import time
+        last_tc_value = getattr(self, '_watchdog_last_tc_value', None)
+        if last_tc_value is None or abs(current_tc_seconds - last_tc_value) > 0.01:
+            # Timecode changed - update timestamp and value
+            self.last_timecode_update_time = time.time()
+            self._watchdog_last_tc_value = current_tc_seconds
+            logger.debug(f"Watchdog: Timecode changed to {current_tc_seconds:.2f}s - reset timer")
+        else:
+            # Timecode stuck - don't update timestamp
+            logger.debug(f"Watchdog: Timecode stuck at {current_tc_seconds:.2f}s - not resetting timer")
+        
+        # Start watchdog timer if recording
+        if self.is_recording_active and self.timecode_watchdog_timer is None:
+            self._start_timecode_watchdog()
+        
         # Update timecode display
         self.timecode_status_label.setText(f"Timecode: {timecode_string} ({fps}fps) - {source}")
         self.timecode_status_label.setStyleSheet("""
@@ -924,8 +895,209 @@ class RecordTab(QWidget):
             }
         """)
         
-        # If recording is active, consider stopping (optional)
-        # For now, let recording continue even if timecode stops
+        # V2.0.3: Auto-stop recording if timecode stopped during recording
+        if self.is_recording_active:
+            logger.warning("⚠️ Timecode stopped during recording - will auto-stop if not resumed")
+    
+    def _start_timecode_watchdog(self):
+        """Start watchdog timer to detect timecode timeout"""
+        if self.timecode_watchdog_timer is not None:
+            logger.debug("Timecode watchdog already running")
+            return  # Already running
+        
+        from PyQt6.QtCore import QTimer
+        self.timecode_watchdog_timer = QTimer(self)
+        self.timecode_watchdog_timer.timeout.connect(self._check_timecode_timeout)
+        self.timecode_watchdog_timer.start(500)  # Check every 500ms
+        self._last_watchdog_log = -1  # Reset log throttling
+        logger.info("⏱️ Timecode watchdog started - will auto-stop after 3s timeout")
+        logger.info(f"⏱️ Watchdog config: timeout={self.timecode_timeout_seconds}s, check_interval=500ms")
+    
+    def _stop_timecode_watchdog(self):
+        """Stop watchdog timer"""
+        if self.timecode_watchdog_timer is not None:
+            self.timecode_watchdog_timer.stop()
+            self.timecode_watchdog_timer = None
+            logger.info("⏹️ Timecode watchdog stopped")
+    
+    def _check_timecode_timeout(self):
+        """Check if timecode has timed out and auto-stop recording"""
+        try:
+            if not self.is_recording_active:
+                logger.debug("Recording stopped - stopping watchdog")
+                self._stop_timecode_watchdog()
+                return
+            
+            # Only auto-stop if recording with timecode sync
+            if not self.timecode_sync_checkbox.isChecked():
+                return
+            
+            # Check if timecode has timed out
+            if self.last_timecode_update_time is not None:
+                import time
+                time_since_update = time.time() - self.last_timecode_update_time
+                
+                # Log only significant events (every 1 second when > 1s)
+                if time_since_update >= 1.0:
+                    current_log_tick = int(time_since_update)
+                    if current_log_tick != getattr(self, '_last_watchdog_log', -1):
+                        logger.info(f"⏱️ Watchdog: {time_since_update:.1f}s since last timecode change | timeout={self.timecode_timeout_seconds}s")
+                        self._last_watchdog_log = current_log_tick
+                
+                if time_since_update > self.timecode_timeout_seconds:
+                    logger.warning(f"⏹️ Timecode timeout detected ({time_since_update:.1f}s) - Auto-stopping recording")
+                    logger.info("💡 Show has ended in playback software - will auto-trim and save")
+                    
+                    # Auto-trim the last 3 seconds (the timeout period) BEFORE stopping
+                    # This ensures the trimmed data is ready
+                    trimmed_seconds = self._auto_trim_recording_end()
+                    
+                    # Auto-stop recording
+                    self.stop_recording()
+                    
+                    # Auto-save the recording
+                    saved_path = self._auto_save_recording()
+                    
+                    # Show notification
+                    from PyQt6.QtWidgets import QMessageBox
+                    if saved_path:
+                        QMessageBox.information(
+                            self,
+                            "Recording Auto-Stopped & Saved",
+                            f"✅ Recording automatically stopped, trimmed, and saved!\n\n"
+                            f"• Show ended in playback software\n"
+                            f"• Last {trimmed_seconds:.0f} seconds auto-trimmed\n"
+                            f"• Saved to: {saved_path.name}\n\n"
+                            f"💡 Your recording now matches the exact show duration."
+                        )
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Recording Auto-Stopped",
+                            f"✅ Recording automatically stopped and trimmed!\n\n"
+                            f"• Last {trimmed_seconds:.0f} seconds auto-trimmed\n"
+                            f"⚠️ Auto-save failed - please save manually"
+                        )
+            else:
+                logger.debug("Watchdog: last_timecode_update_time is None - waiting for first timecode")
+                
+        except Exception as e:
+            logger.error(f"❌ Watchdog error: {e}", exc_info=True)
+    
+    def _auto_trim_recording_end(self):
+        """Auto-trim the last N seconds from recording (timeout period)
+        
+        Returns:
+            float: Number of seconds trimmed
+        """
+        if not self.recorded_data or len(self.recorded_data) == 0:
+            logger.warning("No recorded data to trim")
+            return 0.0
+        
+        try:
+            # Get last timestamp
+            if self.recorded_data:
+                last_timestamp = self.recorded_data[-1]['timestamp']
+                trim_cutoff = last_timestamp - self.timecode_auto_trim_seconds
+                
+                if trim_cutoff <= 0:
+                    logger.warning(f"Recording too short to trim {self.timecode_auto_trim_seconds}s")
+                    return 0.0
+                
+                # Count original data points
+                original_count = len(self.recorded_data)
+                
+                # Remove data points after cutoff
+                self.recorded_data = [dp for dp in self.recorded_data if dp['timestamp'] <= trim_cutoff]
+                
+                trimmed_count = original_count - len(self.recorded_data)
+                new_duration = self.recorded_data[-1]['timestamp'] if self.recorded_data else 0
+                actual_trimmed_seconds = last_timestamp - new_duration
+                
+                logger.info(f"✂️ Auto-trimmed {trimmed_count} data points ({actual_trimmed_seconds:.1f}s)")
+                logger.info(f"   Original: {original_count} points, {last_timestamp:.1f}s")
+                logger.info(f"   Trimmed:  {len(self.recorded_data)} points, {new_duration:.1f}s")
+                
+                return actual_trimmed_seconds
+                
+        except Exception as e:
+            logger.error(f"Error auto-trimming recording: {e}")
+            return 0.0
+    
+    def _auto_save_recording(self):
+        """Auto-save recording without prompting user
+        
+        Returns:
+            Path: Path to saved file, or None if failed
+        """
+        if not self.recorded_data:
+            logger.warning("No recorded data to save")
+            return None
+        
+        try:
+            # Generate auto filename with timestamp
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            default_name = f"DMX_Recording_{timestamp}"
+            
+            # V2.0.2: Use AppData for recordings
+            recordings_dir = get_user_data_dir() / "data" / "recordings"
+            recordings_dir.mkdir(parents=True, exist_ok=True)
+            
+            base_path = recordings_dir / default_name
+            dmxrec_path = base_path.with_suffix('.dmxrec')
+            json_path = base_path.with_suffix('.json')
+            
+            # Data already trimmed by _auto_trim_recording_end()
+            data_to_save = self.recorded_data.copy()
+            
+            # 1. Save binary DMX data (.dmxrec) using DMXRecorder V2.0 format
+            recorder = DMXRecorder(str(dmxrec_path))
+            recorder.start_recording(fps=40.0)
+            
+            for frame in data_to_save:
+                recorder.write_frame(
+                    universe=frame['universe'],
+                    dmx_data=bytes(frame['data'])
+                )
+            
+            stats = recorder.stop_recording()
+            logger.info(f"Binary recording saved: {dmxrec_path} ({stats.get('frame_count', 0)} frames, {stats.get('duration', 0):.2f}s)")
+            
+            # 2. Save metadata (.json)
+            metadata = {
+                'metadata': {
+                    'name': base_path.stem,
+                    'created': time.time(),
+                    'duration': data_to_save[-1]['timestamp'] if data_to_save else 0,
+                    'data_points': len(data_to_save),
+                    'universes': list(set(point['universe'] for point in data_to_save)),
+                    'binary_file': dmxrec_path.name,
+                    'timecode_sync': True,  # Mark as timecode recording
+                    'auto_stopped': True,   # Mark as auto-stopped
+                    'settings': {
+                        'universe_filter': self.universe_combo.currentText(),
+                        'auto_trim': False,  # Already trimmed
+                        'silence_threshold': 0,
+                        'timecode_source': getattr(self, 'recording_timecode_source', 'Unknown')
+                    }
+                },
+                'format_version': '2.0',
+                'audio_file': None
+            }
+            
+            with open(json_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            logger.info(f"✅ Auto-saved recording: {dmxrec_path} + {json_path}")
+            
+            # Refresh recordings list
+            self.refresh_recordings()
+            
+            return dmxrec_path
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-save recording: {e}")
+            return None
 
     def stop_recording(self):
         """Dừng recording"""
@@ -935,6 +1107,10 @@ class RecordTab(QWidget):
         # V2.0.2: Reset timecode tracking state
         self.last_timecode_value = None
         self.timecode_running = False
+        
+        # V2.0.3: Stop timecode watchdog
+        self._stop_timecode_watchdog()
+        self.last_timecode_update_time = None
         
         # V2.0: Resume DMX output if it was paused
         if self.disable_output_checkbox.isChecked() and self.artnet_controller:
@@ -1158,8 +1334,18 @@ class RecordTab(QWidget):
                 dmxrec_path = base_path.with_suffix('.dmxrec')
                 json_path = base_path.with_suffix('.json')
                 
-                # 1. Save binary DMX data (.dmxrec)
-                write_dmxrec_file(dmxrec_path, data_to_save)
+                # 1. Save binary DMX data (.dmxrec) using DMXRecorder V2.0 format
+                recorder = DMXRecorder(str(dmxrec_path))
+                recorder.start_recording(fps=40.0)
+                
+                for frame in data_to_save:
+                    recorder.write_frame(
+                        universe=frame['universe'],
+                        dmx_data=bytes(frame['data'])
+                    )
+                
+                stats = recorder.stop_recording()
+                logger.info(f"Binary recording saved: {dmxrec_path} ({stats.get('frame_count', 0)} frames, {stats.get('duration', 0):.2f}s)")
                 
                 # 2. Save metadata (.json)
                 metadata = {
@@ -1279,9 +1465,14 @@ class RecordTab(QWidget):
                 universes_str = ", ".join(map(str, sorted(universes)))
                 self.recordings_table.setItem(row, 4, QTableWidgetItem(universes_str))
                 
-                # File size
-                size_mb = file_path.stat().st_size / (1024 * 1024)
-                size_str = f"{size_mb:.2f} MB"
+                # File size - show KB for files < 1MB
+                size_bytes = file_path.stat().st_size
+                if size_bytes < 1024 * 1024:  # < 1MB
+                    size_kb = size_bytes / 1024
+                    size_str = f"{size_kb:.2f} KB"
+                else:
+                    size_mb = size_bytes / (1024 * 1024)
+                    size_str = f"{size_mb:.2f} MB"
                 self.recordings_table.setItem(row, 5, QTableWidgetItem(size_str))
                 
                 # Store file path in first item
@@ -1297,9 +1488,11 @@ class RecordTab(QWidget):
         
         if selected_rows:
             self.load_recording_button.setEnabled(True)
+            self.move_to_shows_button.setEnabled(True)
             self.delete_recording_button.setEnabled(True)
         else:
             self.load_recording_button.setEnabled(False)
+            self.move_to_shows_button.setEnabled(False)
             self.delete_recording_button.setEnabled(False)
     
     def load_recording(self):
@@ -1367,7 +1560,15 @@ class RecordTab(QWidget):
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                file_path.unlink()
+                # Delete both .json and .dmxrec files
+                json_path = file_path
+                dmxrec_path = file_path.with_suffix('.dmxrec')
+                
+                json_path.unlink(missing_ok=True)
+                dmxrec_path.unlink(missing_ok=True)
+                
+                logger.info(f"Deleted recording files: {json_path.name} + {dmxrec_path.name}")
+                
                 self.refresh_recordings()
                 
                 QMessageBox.information(
@@ -1382,6 +1583,118 @@ class RecordTab(QWidget):
                     "Delete Error",
                     f"Failed to delete recording: {str(e)}"
                 )
+    
+    def move_recording_to_shows(self):
+        """Move selected recording to Show Manager library with full show creation dialog"""
+        selected_rows = self.recordings_table.selectionModel().selectedRows()
+        
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "⚠️ Please select a recording to move to shows")
+            return
+        
+        row = selected_rows[0].row()
+        name_item = self.recordings_table.item(row, 0)
+        recording_json_path = Path(name_item.data(Qt.ItemDataRole.UserRole))
+        
+        try:
+            # Load recording
+            with open(recording_json_path, 'r', encoding='utf-8') as f:
+                recording_data = json.load(f)
+            
+            # Get recording metadata
+            metadata = recording_data.get('metadata', {})
+            recording_name = metadata.get('name', recording_json_path.stem)
+            duration = metadata.get('duration', 0)
+            
+            # Open create show dialog with recording name as default
+            dialog = CreateShowDialog(
+                self,
+                default_name=recording_name,
+                recording_duration=duration
+            )
+            
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return  # User cancelled
+            
+            show_info = dialog.get_show_data()
+            show_name = show_info['name']
+            
+            # Prepare paths
+            recordings_dir = get_user_data_dir() / "data" / "recordings"
+            shows_dir = get_user_data_dir() / "data" / "shows"
+            shows_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Source files (recording)
+            recording_dmxrec = recording_json_path.with_suffix('.dmxrec')
+            
+            # Destination files (show)
+            show_base = shows_dir / show_name.replace(' ', '_')
+            show_json = show_base.with_suffix('.json')
+            show_dmxrec = show_base.with_suffix('.dmxrec')
+            
+            # Check if show already exists
+            if show_json.exists():
+                reply = QMessageBox.question(
+                    self,
+                    "Overwrite Show",
+                    f"⚠️ Show '{show_name}' already exists. Overwrite?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+            
+            # Copy/move files
+            import shutil
+            
+            # Move .dmxrec file
+            if recording_dmxrec.exists():
+                shutil.move(str(recording_dmxrec), str(show_dmxrec))
+            else:
+                raise FileNotFoundError(f"Recording binary file not found: {recording_dmxrec}")
+            
+            # Update metadata for show format
+            show_data = recording_data.copy()
+            show_data['format_version'] = '2.0'
+            show_data['metadata']['name'] = show_name
+            show_data['metadata']['description'] = show_info['description']
+            show_data['metadata']['binary_file'] = show_dmxrec.name
+            show_data['audio_file'] = show_info['audio_file']
+            
+            # Remove 'data' field if exists (binary format)
+            if 'data' in show_data:
+                del show_data['data']
+            
+            # Save show JSON
+            with open(show_json, 'w', encoding='utf-8') as f:
+                json.dump(show_data, f, indent=2, ensure_ascii=False)
+            
+            # Delete original recording JSON
+            recording_json_path.unlink()
+            
+            # Refresh recordings list
+            self.refresh_recordings()
+            
+            # Reload Show Manager
+            self._reload_show_manager()
+            
+            logger.info(f"Recording moved to shows: {recording_name} → {show_name}")
+            
+            QMessageBox.information(
+                self,
+                "Success",
+                f"✅ Recording '{recording_name}' has been moved to Show Manager as '{show_name}'!\n\n"
+                f"📂 Duration: {duration:.1f}s\n"
+                f"🎵 Audio: {'Assigned' if show_info['audio_file'] else 'None'}\n\n"
+                f"💡 The show is now available in Show Manager library."
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to move recording to shows: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"❌ Failed to move recording to shows:\n{str(e)}"
+            )
     
     def play_recording(self):
         """Play loaded recording"""
@@ -1459,26 +1772,62 @@ class RecordTab(QWidget):
         pass
     
     def create_show(self):
-        """Create a show from recording with MP3 assignment"""
+        """Create a show from current recording data"""
         if not self.recorded_data:
-            QMessageBox.warning(self, "No Data", "No recording data to create show from.")
+            QMessageBox.warning(self, "No Data", "⚠️ No recording data to create show from.\n\nPlease record something first!")
             return
         
-        dialog = CreateShowDialog(self, self.recorded_data)
+        # Calculate duration
+        duration = self.recorded_data[-1]['timestamp'] if self.recorded_data else 0
+        
+        # Open dialog
+        dialog = CreateShowDialog(
+            self, 
+            default_name=f"Light Show {time.strftime('%Y%m%d_%H%M%S')}", 
+            recording_duration=duration
+        )
+        
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            show_data = dialog.get_show_data()
+            show_info = dialog.get_show_data()
             try:
+                # Prepare show data
+                show_data = {
+                    'metadata': {
+                        'name': show_info['name'],
+                        'description': show_info['description'],
+                        'created': time.time(),
+                        'duration': duration,
+                        'data_points': len(self.recorded_data),
+                        'universes': list(set(point['universe'] for point in self.recorded_data)),
+                    },
+                    'audio_file': show_info['audio_file'],
+                    'data': self.recorded_data.copy()
+                }
+                
+                # Save show
                 self.save_show_file(show_data)
+                
+                # Reload Show Manager
+                self._reload_show_manager()
+                
                 QMessageBox.information(
                     self,
                     "Show Created",
-                    f"Show '{show_data['metadata']['name']}' created successfully!"
+                    f"✅ Show '{show_info['name']}' created successfully!\n\n"
+                    f"📂 Duration: {duration:.1f}s\n"
+                    f"📊 Data points: {len(self.recorded_data)}\n"
+                    f"🎵 Audio: {'Assigned' if show_info['audio_file'] else 'None'}\n\n"
+                    f"💡 The show is now available in Show Manager library."
                 )
+                
+                logger.info(f"Show created from current recording: {show_info['name']}")
+                
             except Exception as e:
+                logger.error(f"Failed to create show: {e}", exc_info=True)
                 QMessageBox.critical(
                     self,
-                    "Save Error",
-                    f"Failed to create show: {str(e)}"
+                    "Create Show Error",
+                    f"❌ Failed to create show:\n{str(e)}"
                 )
     
     def save_show_file(self, show_data):
@@ -1490,9 +1839,19 @@ class RecordTab(QWidget):
         show_name = show_data['metadata']['name'].replace(' ', '_')
         base_path = shows_dir / show_name
         
-        # Save binary DMX data (.dmxrec)
+        # Save binary DMX data (.dmxrec) using DMXRecorder V2.0 format
         dmxrec_path = base_path.with_suffix('.dmxrec')
-        write_dmxrec_file(dmxrec_path, show_data['data'])
+        recorder = DMXRecorder(str(dmxrec_path))
+        recorder.start_recording(fps=40.0)
+        
+        for frame in show_data['data']:
+            recorder.write_frame(
+                universe=frame['universe'],
+                dmx_data=bytes(frame['data'])
+            )
+        
+        stats = recorder.stop_recording()
+        logger.info(f"Binary show saved: {dmxrec_path} ({stats.get('frame_count', 0)} frames, {stats.get('duration', 0):.2f}s)")
         
         # Save show metadata (.json) - without DMX data
         show_metadata = show_data.copy()
@@ -1505,6 +1864,22 @@ class RecordTab(QWidget):
             json.dump(show_metadata, f, indent=2, ensure_ascii=False)
         
         logger.info(f"Show saved with binary format: {dmxrec_path} + {json_path}")
+    
+    def _reload_show_manager(self):
+        """Reload Show Manager library after creating a show"""
+        try:
+            # Get main window reference
+            main_window = self.window()
+            if hasattr(main_window, 'show_manager_tab'):
+                if hasattr(main_window.show_manager_tab, 'reload_shows'):
+                    main_window.show_manager_tab.reload_shows()
+                    logger.info("✅ Show Manager library reloaded")
+                else:
+                    logger.warning("ShowManagerTab does not have reload_shows method")
+            else:
+                logger.warning("Main window does not have show_manager_tab")
+        except Exception as e:
+            logger.error(f"Failed to reload Show Manager: {e}")
     
     def closeEvent(self, event):
         """Clean up when tab is closed"""
@@ -1529,228 +1904,3 @@ class RecordTab(QWidget):
             self._stop_timecode_monitoring()
         except:
             pass
-
-
-class CreateShowDialog(QDialog):
-    """Dialog for creating a show from recording"""
-    
-    def __init__(self, parent, recorded_data):
-        super().__init__(parent)
-        self.recorded_data = recorded_data
-        self.setWindowTitle("Create Show from Recording")
-        self.setFixedSize(500, 400)
-        self.setup_ui()
-        
-    def setup_ui(self):
-        """Setup dialog UI"""
-        layout = QVBoxLayout(self)
-        
-        # Show information
-        info_group = QGroupBox("Show Information")
-        info_layout = QVBoxLayout(info_group)
-        
-        # Show name
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Show Name:"))
-        self.name_input = QLineEdit()
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        self.name_input.setText(f"Light Show {timestamp}")
-        name_layout.addWidget(self.name_input)
-        info_layout.addLayout(name_layout)
-        
-        # Description
-        desc_layout = QHBoxLayout()
-        desc_layout.addWidget(QLabel("Description:"))
-        self.desc_input = QLineEdit()
-        self.desc_input.setText("Light show created from DMX recording")
-        desc_layout.addWidget(self.desc_input)
-        info_layout.addLayout(desc_layout)
-        
-        # Author
-        author_layout = QHBoxLayout()
-        author_layout.addWidget(QLabel("Author:"))
-        self.author_input = QLineEdit()
-        self.author_input.setText("Art-Net Studio")
-        author_layout.addWidget(self.author_input)
-        info_layout.addLayout(author_layout)
-        
-        layout.addWidget(info_group)
-        
-        # MP3 Assignment
-        music_group = QGroupBox("Music Assignment")
-        music_layout = QVBoxLayout(music_group)
-        
-        # MP3 file selection
-        file_layout = QHBoxLayout()
-        file_layout.addWidget(QLabel("MP3 File:"))
-        self.mp3_path_input = QLineEdit()
-        file_layout.addWidget(self.mp3_path_input)
-        
-        self.browse_button = QPushButton("Browse...")
-        self.browse_button.clicked.connect(self.browse_mp3)
-        file_layout.addWidget(self.browse_button)
-        music_layout.addLayout(file_layout)
-        
-        # Song details
-        title_layout = QHBoxLayout()
-        title_layout.addWidget(QLabel("Song Title:"))
-        self.title_input = QLineEdit()
-        title_layout.addWidget(self.title_input)
-        music_layout.addLayout(title_layout)
-        
-        artist_layout = QHBoxLayout()
-        artist_layout.addWidget(QLabel("Artist:"))
-        self.artist_input = QLineEdit()
-        artist_layout.addWidget(self.artist_input)
-        music_layout.addLayout(artist_layout)
-        
-        # Duration
-        duration_layout = QHBoxLayout()
-        duration_layout.addWidget(QLabel("Duration (seconds):"))
-        self.duration_input = QSpinBox()
-        self.duration_input.setMaximum(3600)  # Max 1 hour
-        if self.recorded_data:
-            recording_duration = self.recorded_data[-1]['timestamp'] if self.recorded_data else 0
-            self.duration_input.setValue(int(recording_duration + 10))  # Add 10s buffer
-        duration_layout.addWidget(self.duration_input)
-        music_layout.addLayout(duration_layout)
-        
-        layout.addWidget(music_group)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        
-        self.ok_button = QPushButton("Create Show")
-        self.ok_button.clicked.connect(self.accept)
-        button_layout.addWidget(self.ok_button)
-        
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_button)
-        
-        layout.addLayout(button_layout)
-    
-    def browse_mp3(self):
-        """Browse for MP3 file"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select MP3 File",
-            "data/music",
-            "MP3 Files (*.mp3);;All Files (*)"
-        )
-        
-        if file_path:
-            self.mp3_path_input.setText(file_path)
-            # Auto-fill title from filename if empty
-            if not self.title_input.text():
-                filename = Path(file_path).stem
-                self.title_input.setText(filename.replace('_', ' ').title())
-    
-    def accept(self):
-        """Accept dialog and validate inputs"""
-        if not self.name_input.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Please enter a show name.")
-            return
-        
-        super().accept()
-        
-    def reject(self):
-        """Reject dialog"""
-        super().reject()
-    
-    def get_show_data(self):
-        """Get show data from dialog inputs"""
-        # Convert recording data to scenes
-        scenes = self.convert_recording_to_scenes()
-        
-        # Get unique universes
-        universes = list(set(point['universe'] for point in self.recorded_data))
-        
-        # Create playlist if MP3 is selected
-        playlist = []
-        if self.mp3_path_input.text():
-            playlist.append({
-                "file_path": self.mp3_path_input.text(),
-                "title": self.title_input.text() or "Untitled",
-                "artist": self.artist_input.text() or "Unknown Artist",
-                "duration": float(self.duration_input.value()),
-                "start_time": 0.0,
-                "fade_in": 2.0,
-                "fade_out": 3.0,
-                "loop": False
-            })
-        
-        # Calculate total duration
-        duration = self.recorded_data[-1]['timestamp'] if self.recorded_data else 0
-        
-        return {
-            "metadata": {
-                "name": self.name_input.text(),
-                "description": self.desc_input.text(),
-                "author": self.author_input.text(),
-                "created_date": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "modified_date": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "version": "1.0",
-                "duration": duration,
-                "bpm": 120.0,  # Default BPM
-                "universes": universes
-            },
-            "playlist": playlist,
-            "scenes": scenes,
-            "data": self.recorded_data  # V2.0.2: Include DMX recording data for binary file
-        }
-    
-    def convert_recording_to_scenes(self):
-        """Convert recording data points to scenes"""
-        scenes = []
-        
-        if not self.recorded_data:
-            return scenes
-        
-        # Group data points by time intervals (every 5 seconds)
-        interval = 5.0
-        current_time = 0.0
-        scene_counter = 1
-        
-        while current_time < self.recorded_data[-1]['timestamp']:
-            # Find data points in this time interval
-            interval_data = [
-                point for point in self.recorded_data
-                if current_time <= point['timestamp'] < current_time + interval
-            ]
-            
-            if interval_data:
-                # Average the DMX values in this interval
-                channels = {}
-                universes_in_interval = set()
-                
-                for point in interval_data:
-                    universes_in_interval.add(point['universe'])
-                    for i, value in enumerate(point['data']):
-                        if value > 0:  # Only include non-zero channels
-                            channel_key = str(i + 1)
-                            if channel_key not in channels:
-                                channels[channel_key] = []
-                            channels[channel_key].append(value)
-                
-                # Average the channel values
-                averaged_channels = {}
-                for channel, values in channels.items():
-                    averaged_channels[channel] = int(sum(values) / len(values))
-                
-                # Create scene for each universe in this interval
-                for universe in universes_in_interval:
-                    scene = {
-                        "name": f"Scene {scene_counter}",
-                        "universe": universe,
-                        "channels": averaged_channels,
-                        "timestamp": current_time,
-                        "duration": interval,
-                        "fade_time": 1.0
-                    }
-                    scenes.append(scene)
-                    scene_counter += 1
-            
-            current_time += interval
-        
-        return scenes

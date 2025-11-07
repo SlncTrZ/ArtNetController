@@ -2,9 +2,9 @@
 Version information for DMX Master LTS
 """
 
-__version__ = "1.0.6"
-__version_name__ = "DMX Master LTS 1.0.6"
-__build__ = "2025.11.06.1"
+__version__ = "1.1.1"
+__version_name__ = "DMX Master LTS 1.1.1"
+__build__ = "2025.11.07.1"
 __author__ = "Trương Công Định"
 __email__ = "truongcongdinh97tcd@gmail.com"
 __github_repo__ = "https://github.com/truongcongdinh97/DMX-Master"
@@ -12,7 +12,7 @@ __update_url__ = "https://api.github.com/repos/truongcongdinh97/DMX-Master/relea
 
 # Release information
 __release_type__ = "LTS"  # Long Term Support
-__release_date__ = "2025-11-06"
+__release_date__ = "2025-11-07"
 __stability__ = "Stable"
 __features__ = [
     "Binary DMX Recording & Playback",
@@ -30,7 +30,12 @@ __features__ = [
     "Full Depence Broadcast Support",
     "Enhanced Network Compatibility",
     "Professional Logging System",
-    "Optimized Performance"
+    "Optimized Performance",
+    "Audio Playback Support (V1.1.1)",
+    "DMX Receiving Control in Playback Mode (V1.1.1)",
+    "System Settings Tab with Timecode Toggle (V1.1.1)",
+    "Fixed ArtPoll Reply Auto-Broadcast (V1.1.1)",
+    "Fixed Universe Detection Byte Order (V1.1.1)"
 ]
 
 def get_version():

@@ -28,13 +28,14 @@ class SettingsTab(QWidget):
         """Khởi tạo UI"""
         layout = QVBoxLayout(self)
         
-        # Settings tabs - CHỈ GIỮ LẠI Network Info và Shows
+        # Settings tabs - Network Info, Shows, and System (V2.2)
         self.settings_tabs = QTabWidget()
         layout.addWidget(self.settings_tabs)
         
         # Create setting tabs
         self.create_network_info()
         self.create_show_settings()
+        self.create_system_settings()  # V2.2: New tab
         
         # Buttons
         self.create_buttons(layout)
@@ -207,6 +208,55 @@ class SettingsTab(QWidget):
         layout.addWidget(playlist_group)
         
         self.settings_tabs.addTab(show_widget, "Shows")
+    
+    def create_system_settings(self):
+        """Create System settings tab (V2.2)"""
+        system_widget = QWidget()
+        layout = QVBoxLayout(system_widget)
+        
+        # ArtNet Timecode settings
+        timecode_group = QGroupBox("ArtNet Timecode")
+        timecode_layout = QFormLayout(timecode_group)
+        
+        # Enable/Disable timecode broadcasting
+        self.artnet_timecode_enabled_checkbox = QCheckBox()
+        self.artnet_timecode_enabled_checkbox.setChecked(True)  # Enabled by default
+        self.artnet_timecode_enabled_checkbox.setToolTip(
+            "Enable sending ArtNet Timecode packets during show playback.\n"
+            "Disable this if you don't need to sync external devices."
+        )
+        timecode_layout.addRow("Send Timecode During Playback:", self.artnet_timecode_enabled_checkbox)
+        
+        # Timecode format (for future)
+        timecode_info = QLabel(
+            "When enabled, DMX Master will broadcast ArtNet Timecode (OpCode 0x9700)\n"
+            "to all devices on the network during show playback.\n\n"
+            "This allows external devices (lighting consoles, media servers, etc.)\n"
+            "to synchronize with the show timeline."
+        )
+        timecode_info.setStyleSheet("color: #666; padding: 10px;")
+        timecode_info.setWordWrap(True)
+        timecode_layout.addRow("", timecode_info)
+        
+        layout.addWidget(timecode_group)
+        
+        # Performance settings
+        performance_group = QGroupBox("Performance")
+        performance_layout = QFormLayout(performance_group)
+        
+        self.buffer_size_spin = QSpinBox()
+        self.buffer_size_spin.setRange(10, 500)
+        self.buffer_size_spin.setValue(100)
+        self.buffer_size_spin.setSuffix(" frames")
+        self.buffer_size_spin.setToolTip("Buffer size for DMX playback (higher = smoother, more memory)")
+        performance_layout.addRow("Playback Buffer:", self.buffer_size_spin)
+        
+        layout.addWidget(performance_group)
+        
+        # Add spacer
+        layout.addStretch()
+        
+        self.settings_tabs.addTab(system_widget, "System")
     
     def create_recording_settings(self):
         """Tạo Recording settings"""
@@ -491,6 +541,16 @@ class SettingsTab(QWidget):
                     self.config_manager.get_app_config('security.require_password', False)
                 )
             
+            # V2.2: System settings
+            if hasattr(self, 'artnet_timecode_enabled_checkbox'):
+                self.artnet_timecode_enabled_checkbox.setChecked(
+                    self.config_manager.get_app_config('system.artnet_timecode_enabled', True)
+                )
+            if hasattr(self, 'buffer_size_spin'):
+                self.buffer_size_spin.setValue(
+                    self.config_manager.get_app_config('system.playback_buffer_size', 100)
+                )
+            
         except Exception as e:
             logger.error(f"Failed to load settings: {e}")
             QMessageBox.warning(self, "Load Error", f"Failed to load settings: {e}")
@@ -498,34 +558,61 @@ class SettingsTab(QWidget):
     def save_settings(self):
         """Save settings to config"""
         try:
-            # Art-Net settings
-            self.config_manager.set_app_config('artnet.port', self.artnet_port_spin.value())
-            self.config_manager.set_app_config('artnet.universe', self.universe_spin.value())
-            self.config_manager.set_app_config('artnet.refresh_rate', self.refresh_rate_spin.value())
-            self.config_manager.set_app_config('artnet.broadcast_address', self.broadcast_edit.text())
-            self.config_manager.set_app_config('artnet.auto_discovery', self.auto_discovery_checkbox.isChecked())
+            # Art-Net settings (only if widgets exist)
+            if hasattr(self, 'artnet_port_spin'):
+                self.config_manager.set_app_config('artnet.port', self.artnet_port_spin.value())
+            if hasattr(self, 'universe_spin'):
+                self.config_manager.set_app_config('artnet.universe', self.universe_spin.value())
+            if hasattr(self, 'refresh_rate_spin'):
+                self.config_manager.set_app_config('artnet.refresh_rate', self.refresh_rate_spin.value())
+            if hasattr(self, 'broadcast_edit'):
+                self.config_manager.set_app_config('artnet.broadcast_address', self.broadcast_edit.text())
+            if hasattr(self, 'auto_discovery_checkbox'):
+                self.config_manager.set_app_config('artnet.auto_discovery', self.auto_discovery_checkbox.isChecked())
             
-            # Webserver settings
-            self.config_manager.set_app_config('webserver.enabled', self.webserver_enabled_checkbox.isChecked())
-            self.config_manager.set_app_config('webserver.port', self.webserver_port_spin.value())
-            self.config_manager.set_app_config('webserver.host', self.webserver_host_edit.text())
-            self.config_manager.set_app_config('webserver.upload_path', self.upload_path_edit.text())
-            self.config_manager.set_app_config('webserver.max_file_size', self.max_file_size_spin.value())
+            # Webserver settings (only if widgets exist)
+            if hasattr(self, 'webserver_enabled_checkbox'):
+                self.config_manager.set_app_config('webserver.enabled', self.webserver_enabled_checkbox.isChecked())
+            if hasattr(self, 'webserver_port_spin'):
+                self.config_manager.set_app_config('webserver.port', self.webserver_port_spin.value())
+            if hasattr(self, 'webserver_host_edit'):
+                self.config_manager.set_app_config('webserver.host', self.webserver_host_edit.text())
+            if hasattr(self, 'upload_path_edit'):
+                self.config_manager.set_app_config('webserver.upload_path', self.upload_path_edit.text())
+            if hasattr(self, 'max_file_size_spin'):
+                self.config_manager.set_app_config('webserver.max_file_size', self.max_file_size_spin.value())
             
-            # Show settings
-            self.config_manager.set_app_config('show.default_path', self.show_path_edit.text())
-            self.config_manager.set_app_config('show.auto_save', self.auto_save_checkbox.isChecked())
-            self.config_manager.set_app_config('show.backup_count', self.backup_count_spin.value())
+            # Show settings (only if widgets exist)
+            if hasattr(self, 'show_path_edit'):
+                self.config_manager.set_app_config('show.default_path', self.show_path_edit.text())
+            if hasattr(self, 'auto_save_checkbox'):
+                self.config_manager.set_app_config('show.auto_save', self.auto_save_checkbox.isChecked())
+            if hasattr(self, 'backup_count_spin'):
+                self.config_manager.set_app_config('show.backup_count', self.backup_count_spin.value())
             
-            # Recording settings
-            self.config_manager.set_app_config('recording.path', self.recording_path_edit.text())
-            self.config_manager.set_app_config('recording.auto_trim_silence', self.auto_trim_checkbox.isChecked())
-            self.config_manager.set_app_config('recording.silence_threshold', self.silence_threshold_slider.value())
-            self.config_manager.set_app_config('recording.min_silence_duration', self.min_silence_spin.value())
+            # Recording settings (only if widgets exist)
+            if hasattr(self, 'recording_path_edit'):
+                self.config_manager.set_app_config('recording.path', self.recording_path_edit.text())
+            if hasattr(self, 'auto_trim_checkbox'):
+                self.config_manager.set_app_config('recording.auto_trim_silence', self.auto_trim_checkbox.isChecked())
+            if hasattr(self, 'silence_threshold_slider'):
+                self.config_manager.set_app_config('recording.silence_threshold', self.silence_threshold_slider.value())
+            if hasattr(self, 'min_silence_spin'):
+                self.config_manager.set_app_config('recording.min_silence_duration', self.min_silence_spin.value())
             
-            # Security settings
-            self.config_manager.set_app_config('security.admin_mode', self.admin_mode_checkbox.isChecked())
-            self.config_manager.set_app_config('security.require_password', self.require_password_checkbox.isChecked())
+            # Security settings (only if widgets exist)
+            if hasattr(self, 'admin_mode_checkbox'):
+                self.config_manager.set_app_config('security.admin_mode', self.admin_mode_checkbox.isChecked())
+            if hasattr(self, 'require_password_checkbox'):
+                self.config_manager.set_app_config('security.require_password', self.require_password_checkbox.isChecked())
+            
+            # V2.2: System settings
+            if hasattr(self, 'artnet_timecode_enabled_checkbox'):
+                self.config_manager.set_app_config('system.artnet_timecode_enabled', 
+                                                   self.artnet_timecode_enabled_checkbox.isChecked())
+            if hasattr(self, 'buffer_size_spin'):
+                self.config_manager.set_app_config('system.playback_buffer_size', 
+                                                   self.buffer_size_spin.value())
             
             # Save to file
             self.config_manager.save_configs()
