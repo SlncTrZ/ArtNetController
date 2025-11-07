@@ -273,14 +273,16 @@ class MainWindow(QMainWindow):
         webserver_submenu.addAction(webserver_settings_action)
         
         # Recording submenu
-        recording_submenu = setting_menu.addMenu("&Recording")
-        
-        recording_settings_action = QAction("Recording &Settings...", self)
-        recording_settings_action.triggered.connect(self.show_recording_settings)
-        recording_submenu.addAction(recording_settings_action)
-        
         # System submenu
         system_submenu = setting_menu.addMenu("S&ystem")
+        
+        # System Settings action - dẫn đến tab System trong Settings
+        system_settings_action = QAction("System &Settings...", self)
+        system_settings_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        system_settings_action.triggered.connect(self.show_system_settings)
+        system_submenu.addAction(system_settings_action)
+        
+        system_submenu.addSeparator()
         
         # Language submenu
         language_submenu = system_submenu.addMenu("&Language")
@@ -294,12 +296,6 @@ class MainWindow(QMainWindow):
         
         # Set English as default
         self.language_actions[0].setChecked(True)
-        
-        system_submenu.addSeparator()
-        
-        system_settings_action = QAction("System &Settings...", self)
-        system_settings_action.triggered.connect(self.show_system_settings)
-        system_submenu.addAction(system_settings_action)
         
         setting_menu.addSeparator()
         
@@ -1401,8 +1397,20 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Recording Settings", "Recording settings dialog will be implemented soon.")
     
     def show_system_settings(self):
-        """Show system settings dialog"""
-        QMessageBox.information(self, "System Settings", "System settings dialog will be implemented soon.")
+        """Show system settings - Open Settings tab and switch to System"""
+        # Switch to Settings tab
+        self.tab_widget.setCurrentWidget(self.settings_tab)
+        
+        # Switch to System tab within Settings
+        if hasattr(self.settings_tab, 'settings_tabs'):
+            # Find System tab index
+            for i in range(self.settings_tab.settings_tabs.count()):
+                if self.settings_tab.settings_tabs.tabText(i) == "System":
+                    self.settings_tab.settings_tabs.setCurrentIndex(i)
+                    logger.info("Opened System Settings tab")
+                    return
+        
+        logger.warning("System Settings tab not found")
     
     def apply_light_theme(self):
         """Apply light theme"""

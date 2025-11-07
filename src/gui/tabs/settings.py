@@ -214,6 +214,50 @@ class SettingsTab(QWidget):
         system_widget = QWidget()
         layout = QVBoxLayout(system_widget)
         
+        # Startup settings (Admin only)
+        startup_group = QGroupBox("Startup Settings (Administrator Only)")
+        startup_layout = QFormLayout(startup_group)
+        
+        self.start_with_windows_checkbox = QCheckBox()
+        self.start_with_windows_checkbox.setChecked(False)
+        self.start_with_windows_checkbox.setToolTip(
+            "Automatically start DMX Master when Windows starts.\n"
+            "Requires Administrator privileges to modify."
+        )
+        self.start_with_windows_checkbox.setEnabled(self._is_admin())
+        self.start_with_windows_checkbox.stateChanged.connect(self.on_start_with_windows_changed)
+        startup_layout.addRow("Start with Windows:", self.start_with_windows_checkbox)
+        
+        if not self._is_admin():
+            admin_warning = QLabel("⚠️ Run as Administrator to enable this feature")
+            admin_warning.setStyleSheet("color: orange; font-style: italic;")
+            startup_layout.addRow("", admin_warning)
+        
+        layout.addWidget(startup_group)
+        
+        # Logging settings (Admin only)
+        logging_group = QGroupBox("Logging Settings (Administrator Only)")
+        logging_layout = QFormLayout(logging_group)
+        
+        self.enable_logging_checkbox = QCheckBox()
+        self.enable_logging_checkbox.setChecked(True)
+        self.enable_logging_checkbox.setToolTip("Enable/disable application logging")
+        self.enable_logging_checkbox.setEnabled(self._is_admin())
+        logging_layout.addRow("Enable Logging:", self.enable_logging_checkbox)
+        
+        self.log_level_combo = QComboBox()
+        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+        self.log_level_combo.setCurrentText("INFO")
+        self.log_level_combo.setEnabled(self._is_admin())
+        logging_layout.addRow("Log Level:", self.log_level_combo)
+        
+        if not self._is_admin():
+            admin_warning2 = QLabel("⚠️ Run as Administrator to modify logging settings")
+            admin_warning2.setStyleSheet("color: orange; font-style: italic;")
+            logging_layout.addRow("", admin_warning2)
+        
+        layout.addWidget(logging_group)
+        
         # ArtNet Timecode settings
         timecode_group = QGroupBox("ArtNet Timecode")
         timecode_layout = QFormLayout(timecode_group)
@@ -613,6 +657,15 @@ class SettingsTab(QWidget):
             if hasattr(self, 'buffer_size_spin'):
                 self.config_manager.set_app_config('system.playback_buffer_size', 
                                                    self.buffer_size_spin.value())
+            if hasattr(self, 'start_with_windows_checkbox'):
+                self.config_manager.set_app_config('system.start_with_windows',
+                                                   self.start_with_windows_checkbox.isChecked())
+            if hasattr(self, 'enable_logging_checkbox'):
+                self.config_manager.set_app_config('system.enable_logging',
+                                                   self.enable_logging_checkbox.isChecked())
+            if hasattr(self, 'log_level_combo'):
+                self.config_manager.set_app_config('system.log_level',
+                                                   self.log_level_combo.currentText())
             
             # Save to file
             self.config_manager.save_configs()
@@ -685,6 +738,66 @@ class SettingsTab(QWidget):
     def update_silence_label(self, value):
         """Update silence threshold label"""
         self.silence_threshold_label.setText(f"{value} dB")
+    
+    def _is_admin(self):
+        """Check if running as Administrator"""
+        try:
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except:
+            return False
+    
+    def on_start_with_windows_changed(self, state):
+        """Handle start with Windows checkbox change"""
+        if not self._is_admin():
+            QMessageBox.warning(
+                self,
+                "Administrator Required",
+                "⚠️ Administrator privileges required to modify startup settings.\n\n"
+                "Please restart the application as Administrator."
+            )
+            return
+        
+        enabled = (state == Qt.CheckState.Checked.value)
+        
+        try:
+            import winreg
+            import sys
+            import os
+            
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            app_name = "DMXMasterLTS"
+            exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(sys.argv[0])
+            
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            
+            if enabled:
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
+                QMessageBox.information(
+                    self,
+                    "Startup Enabled",
+                    "✅ DMX Master will now start with Windows."
+                )
+            else:
+                try:
+                    winreg.DeleteValue(key, app_name)
+                    QMessageBox.information(
+                        self,
+                        "Startup Disabled",
+                        "⛔ DMX Master will no longer start with Windows."
+                    )
+                except FileNotFoundError:
+                    pass  # Key doesn't exist, already disabled
+            
+            winreg.CloseKey(key)
+            
+        except Exception as e:
+            logger.error(f"Failed to modify startup setting: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to modify startup setting:\n{e}"
+            )
     
     def on_admin_mode_changed(self, enabled):
         """Handle admin mode change"""

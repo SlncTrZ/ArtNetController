@@ -686,20 +686,41 @@ class HardwareManagerTab(QWidget):
     
     def on_broadcast_changed(self, state):
         """Handle broadcast checkbox state change"""
+        from PyQt6.QtWidgets import QMessageBox
+        
         enabled = (state == Qt.CheckState.Checked.value)
         
-        # Update broadcast setting in ArtNet controller if available
-        if hasattr(self, 'artnet_controller') and self.artnet_controller:
-            # Store broadcast preference
-            self.broadcast_enabled = enabled
-            status = "enabled" if enabled else "disabled"
-            logger.info(f"Broadcast {status}")
-            
-            # Show notification
-            self.scan_status.setText(f"Broadcast {status}")
+        # Update broadcast setting
+        self.broadcast_enabled = enabled
+        
+        # Log the change
+        status = "enabled" if enabled else "disabled"
+        broadcast_ip = "255.255.255.255"
+        logger.info(f"Broadcast {status} to {broadcast_ip}")
+        
+        # Show notification message box
+        if enabled:
+            QMessageBox.information(
+                self,
+                "Broadcast Enabled",
+                f"✅ Đã mở Broadcast đến địa chỉ {broadcast_ip}\n\n"
+                "ArtNet packets sẽ được gửi đến tất cả thiết bị trên mạng."
+            )
+            self.scan_status.setText(f"Broadcast enabled to {broadcast_ip}")
         else:
-            self.broadcast_enabled = enabled
-            logger.info(f"Broadcast preference set to: {enabled}")
+            QMessageBox.information(
+                self,
+                "Broadcast Disabled", 
+                f"⛔ Đã tắt Broadcast đến địa chỉ {broadcast_ip}\n\n"
+                "Chỉ gửi Unicast đến các thiết bị đã được thêm thủ công."
+            )
+            self.scan_status.setText("Broadcast disabled - Unicast only")
+        
+        # Update ArtNet controller if available
+        if hasattr(self, 'artnet_controller') and self.artnet_controller:
+            # Apply broadcast setting to controller
+            # (Can be used by controller to decide broadcast vs unicast)
+            pass
     
     def add_device_manually(self):
         """Add device manually by IP address"""
@@ -779,12 +800,11 @@ class HardwareManagerTab(QWidget):
                 return
             
             # Create manual node
-            from src.artnet.artnet_receiver import ArtNetNode
+            from src.artnet.controller import ArtNetNode
             import time
             
             manual_node = ArtNetNode(
                 ip_address=ip_address,
-                port=6454,
                 short_name=device_name,
                 long_name=f"{device_name} (Manual)",
                 universe=0,

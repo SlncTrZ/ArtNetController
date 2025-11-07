@@ -64,6 +64,26 @@ class IPInfoWidget(QWidget):
         port_layout.addStretch()
         group_layout.addLayout(port_layout)
         
+        # Broadcast IP info
+        broadcast_layout = QHBoxLayout()
+        
+        broadcast_label = QLabel("Broadcast IP:")
+        broadcast_label.setStyleSheet("font-weight: bold; color: #ffa500;")
+        broadcast_layout.addWidget(broadcast_label)
+        
+        self.broadcast_value = QLabel("255.255.255.255")
+        self.broadcast_value.setStyleSheet("font-family: 'Courier New'; font-size: 14px; background-color: #3c3c3c; padding: 5px; border: 1px solid #555; border-radius: 3px;")
+        self.broadcast_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        broadcast_layout.addWidget(self.broadcast_value)
+        
+        self.copy_broadcast_btn = QPushButton("Copy")
+        self.copy_broadcast_btn.setMaximumWidth(80)
+        self.copy_broadcast_btn.clicked.connect(self.copy_broadcast_to_clipboard)
+        broadcast_layout.addWidget(self.copy_broadcast_btn)
+        
+        broadcast_layout.addStretch()
+        group_layout.addLayout(broadcast_layout)
+        
         # Instructions
         instructions_label = QLabel("Instructions for External Software:")
         instructions_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
@@ -240,6 +260,15 @@ Instructions:
         except Exception as e:
             logger.error(f"Failed to copy info: {e}")
             QMessageBox.warning(self, "Error", f"Failed to copy information: {e}")
+    
+    def copy_broadcast_to_clipboard(self):
+        """Copy broadcast IP to clipboard"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText("255.255.255.255")
+        
+        # Show temporary message
+        self.copy_broadcast_btn.setText("Copied!")
+        QTimer.singleShot(2000, lambda: self.copy_broadcast_btn.setText("Copy"))
     
     def get_current_ip(self):
         """Get current IP address"""
