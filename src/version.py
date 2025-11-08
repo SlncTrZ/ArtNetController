@@ -2,9 +2,9 @@
 Version information for DMX Master LTS
 """
 
-__version__ = "1.1.1"
-__version_name__ = "DMX Master LTS 1.1.1"
-__build__ = "2025.11.07.1"
+__version__ = "1.1.2"
+__version_name__ = "DMX Master LTS 1.1.2"
+__build__ = "2025.11.07.2"
 __author__ = "Trương Công Định"
 __email__ = "truongcongdinh97tcd@gmail.com"
 __github_repo__ = "https://github.com/truongcongdinh97/DMX-Master"
@@ -35,7 +35,11 @@ __features__ = [
     "DMX Receiving Control in Playback Mode (V1.1.1)",
     "System Settings Tab with Timecode Toggle (V1.1.1)",
     "Fixed ArtPoll Reply Auto-Broadcast (V1.1.1)",
-    "Fixed Universe Detection Byte Order (V1.1.1)"
+    "Fixed Universe Detection Byte Order (V1.1.1)",
+    "Start with Windows (Admin) (V1.1.2)",
+    "Broadcast Enable/Disable Notifications (V1.1.2)",
+    "Network Info with Broadcast IP (V1.1.2)",
+    "Fixed ModuleNotFoundError (V1.1.2)"
 ]
 
 def get_version():
