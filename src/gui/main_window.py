@@ -46,6 +46,14 @@ except ImportError:
 from src.utils.license import LicenseManager
 from src.gui.dialogs.license_dialog import LicenseDialog
 
+# Import IOBoard Serial Controller (background operation)
+try:
+    from src.serial.serial_controller import SerialController
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+    logger.warning("Serial module not available - IOBoard features disabled")
+
 logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
@@ -74,6 +82,9 @@ class MainWindow(QMainWindow):
         self.artnet_controller = None
         self.webserver = None
         
+        # IOBoard Serial Controller (background, auto-connect)
+        self.serial_controller = None
+        
         # License manager
         self.license_manager = LicenseManager()
         
@@ -96,6 +107,7 @@ class MainWindow(QMainWindow):
         
         # Initialize components
         self.init_artnet_controller()
+        self.init_serial_controller()  # Auto-init IOBoard (background)
         
         # Connect signals for thread-safe DMX updates
         self.dmx_data_updated.connect(self.on_dmx_data_updated_slot)
@@ -485,6 +497,56 @@ class MainWindow(QMainWindow):
             logger.error(f"Failed to initialize DMX Master: {e}")
             QMessageBox.warning(self, "Warning", f"Failed to initialize DMX Master: {e}")
     
+    def init_serial_controller(self):
+        """
+        Initialize IOBoard Serial Controller (Background Operation)
+        - Auto-detect DMX Master IO boards
+        - Auto-connect all boards
+        - Auto-mapping universes (Board #1→U0,1, Board #2→U2,3, etc.)
+        - Silent operation (logs only)
+        """
+        if not SERIAL_AVAILABLE:
+            logger.info("Serial features not available (pyserial not installed)")
+            return
+        
+        try:
+            # Check if serial is enabled in config
+            serial_enabled = self.config_manager.get_app_config('serial.enabled', False)
+            if not serial_enabled:
+                logger.info("IOBoard serial output disabled in config")
+                return
+            
+            # Get baudrate from config
+            baudrate = self.config_manager.get_app_config('serial.baudrate', 500000)
+            
+            # Create serial controller
+            self.serial_controller = SerialController(baudrate=baudrate)
+            
+            # Check if pyserial is available
+            if not self.serial_controller.is_available():
+                logger.warning("pyserial not installed - IOBoard features disabled")
+                self.serial_controller = None
+                return
+            
+            # Auto-scan and connect to all IOBoards (background)
+            logger.info("Scanning for IOBoard devices...")
+            connected_count = self.serial_controller.scan_and_connect_all()
+            
+            if connected_count > 0:
+                # Success - log board mapping
+                mapping = self.serial_controller.get_universe_mapping()
+                logger.info(f"✅ IOBoard: Connected to {connected_count} board(s)")
+                for board_num, universes in mapping.items():
+                    logger.info(f"   Board #{board_num} → Universes {universes}")
+            else:
+                # No boards found - not an error, just log info
+                logger.info("No IOBoard devices detected (this is normal if no boards connected)")
+                self.serial_controller = None
+            
+        except Exception as e:
+            logger.error(f"IOBoard initialization error: {e}")
+            self.serial_controller = None
+    
     def init_webserver(self):
         """Initialize webserver"""
         try:
@@ -711,6 +773,7 @@ class MainWindow(QMainWindow):
         non_zero_channels = sum(1 for x in dmx_data if x > 0) if dmx_data else 0
         logger.info(f"Show output: Universe {universe}, {len(dmx_data) if dmx_data else 0} channels, {non_zero_channels} active")
 
+        # Send to Art-Net (network)
         if self.artnet_controller and self.artnet_controller.running:
             if dmx_data:
                 # Sử dụng send_dmx_with_mapping để gửi theo cấu hình
@@ -722,6 +785,18 @@ class MainWindow(QMainWindow):
                 logger.debug(f"Updated DMX View with universe {universe} data")
         else:
             logger.warning(f"Cannot send DMX: Art-Net controller not running")
+        
+        # Send to IOBoard (serial) - Background operation, silent
+        if self.serial_controller and self.serial_controller.is_connected():
+            try:
+                # Auto-route DMX to correct board based on universe mapping
+                success = self.serial_controller.send_dmx(universe, dmx_data)
+                if success:
+                    logger.debug(f"IOBoard: Sent Universe {universe} to serial")
+                # No error logging if send fails - handled in serial_controller
+            except Exception as e:
+                # Log error but don't show to user
+                logger.error(f"IOBoard send error (Universe {universe}): {e}")
     
     def update_status(self):
         """Update status bar and widgets"""
@@ -1019,6 +1094,14 @@ class MainWindow(QMainWindow):
         # Stop Art-Net
         if self.artnet_controller:
             self.artnet_controller.stop()
+        
+        # Disconnect IOBoard (serial)
+        if self.serial_controller:
+            try:
+                self.serial_controller.disconnect_all()
+                logger.info("IOBoard serial connections closed")
+            except Exception as e:
+                logger.error(f"Error closing IOBoard: {e}")
         
         # Stop webserver
         if self.webserver:

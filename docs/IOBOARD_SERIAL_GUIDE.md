@@ -2,7 +2,14 @@
 
 ## 🎯 Overview
 
-DMX Master LTS hỗ trợ kết nối trực tiếp với **DMX Master IO boards** qua Serial/USB để xuất DMX512 vật lý. Hệ thống tự động nhận diện và mapping các boards.
+DMX Master LTS hỗ trợ kết nối trực tiếp với **DMX Master IO boards** qua Serial/USB để xuất DMX512 vật lý. 
+
+**⚡ Auto-Operation Mode:**
+- ✅ Tự động phát hiện boards khi khởi động
+- ✅ Tự động kết nối (không cần thao tác)
+- ✅ Tự động mapping universes
+- ✅ Hoạt động im lặng ở background
+- ✅ Không có GUI - chỉ log errors nếu có
 
 ---
 
@@ -29,9 +36,9 @@ DMX Master LTS hỗ trợ kết nối trực tiếp với **DMX Master IO boards
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (3 Steps)
 
-### Step 1: Install Requirements
+### Step 1: Install pyserial
 
 ```powershell
 pip install pyserial>=3.5
@@ -41,30 +48,29 @@ pip install pyserial>=3.5
 
 1. Plug IOBoard vào USB port
 2. Windows sẽ tự động cài driver (nếu cần)
-3. Check Device Manager → Ports (COM & LPT)
-4. Tìm "DMX Master IO #1" hoặc tương tự
+3. Device name PHẢI là: **"DMX Master IO #1"** (hoặc #2, #3...)
 
 ### Step 3: Launch DMX Master
 
 1. Mở DMX Master LTS
-2. Go to **Serial/IOBoard Manager** tab
-3. Click **"Scan IOBoards"**
-4. Tất cả boards sẽ được phát hiện tự động
+2. IOBoard sẽ **tự động được phát hiện và kết nối**
+3. Check log file để verify:
 
-### Step 4: Connect
-
-- **Option A**: Click **"Connect All"** để kết nối tất cả boards
-- **Option B**: Chọn board và click **"Connect"** để kết nối từng board
-
-### Step 5: Verify Mapping
-
-Kiểm tra cột **"Universes"** trong bảng:
 ```
-Board #1 → Universe 0, 1
-Board #2 → Universe 2, 3
+logs/app.log
+```
+
+**Success messages:**
+```
+INFO - Scanning for IOBoard devices...
+INFO - ✅ IOBoard: Connected to 2 board(s)
+INFO -    Board #1 → Universes [0, 1]
+INFO -    Board #2 → Universes [2, 3]
 ```
 
 ✅ **Done!** DMX output sẽ tự động gửi đến IOBoard khi play show.
+
+**No GUI interaction needed!**
 
 ---
 
@@ -92,37 +98,30 @@ Board #N → Universe [(N-1)*2, (N-1)*2+1]
 
 ---
 
-## ⚙️ Manual Mapping (Admin Only)
+## ⚙️ Manual Mapping (Advanced)
 
-### When to Use
+**Note:** Manual mapping hiện không có GUI. Auto-mapping sẽ được áp dụng mặc định.
 
-- Mapping tùy chỉnh (không theo công thức auto)
-- Assign nhiều hơn 2 universes cho 1 board
-- Skip universes (ví dụ: Board #1 → U5, U7)
+### Formula (Auto-Mapping)
 
-### How to Configure
-
-1. **Login as Admin** (required)
-2. Select board trong table
-3. Click **"Manual Mapping"** button
-4. Configure universes:
-   - Universe 1: [Spinbox]
-   - Universe 2: [Spinbox]
-   - Universe 3: [Spinbox]
-   - Universe 4: [Spinbox]
-5. Set `-1` để disable universe
-6. Click **OK**
-
-**Example:**
 ```
-Board #1:
-  Universe 1: 0
-  Universe 2: 1
-  Universe 3: 5
-  Universe 4: -1 (Disabled)
-
-→ Board #1 sẽ output Universe 0, 1, và 5
+Board #N → Universe [(N-1)*2, (N-1)*2+1]
 ```
+
+### Override Auto-Mapping (Code Only)
+
+Nếu cần custom mapping, edit `src/serial/serial_controller.py`:
+
+```python
+# In init_serial_controller() method of main_window.py
+# After scan_and_connect_all():
+
+# Example: Custom mapping
+self.serial_controller.set_manual_mapping(1, [0, 1, 5])  # Board #1 → U0,1,5
+self.serial_controller.set_manual_mapping(2, [10, 11])   # Board #2 → U10,11
+```
+
+**Not recommended for normal users - auto-mapping works for most cases.**
 
 ---
 
@@ -157,7 +156,7 @@ Byte 517:   [Checksum]          # XOR checksum
 
 ### Board Not Detected
 
-**Problem:** "No IOBoards detected" sau khi scan
+**Problem:** Check log file và thấy "No IOBoard devices detected"
 
 **Solutions:**
 
@@ -165,11 +164,15 @@ Byte 517:   [Checksum]          # XOR checksum
    - Unplug và plug lại
    - Try different USB port
    
-2. **Check Device Name**
+2. **Check Device Name (CRITICAL!)**
    - Open Device Manager (Windows)
    - Ports (COM & LPT)
-   - Tìm device có tên chứa "DMX Master IO"
-   - Nếu không có, rename device hoặc check driver
+   - Device name PHẢI chứa "DMX Master IO #N"
+   - Example: "DMX Master IO #1 (COM3)"
+   - Nếu khác tên → Rename device:
+     - Right-click device → Properties
+     - Port Settings → Advanced
+     - Description: Change to "DMX Master IO #1"
 
 3. **Check pyserial**
    ```powershell
@@ -180,12 +183,22 @@ Byte 517:   [Checksum]          # XOR checksum
    pip install pyserial
    ```
 
-4. **Manual Port Check**
-   - Run script test:
+4. **Check Logs**
+   ```
+   logs/app.log
+   ```
+   Search for "IOBoard" entries:
+   ```
+   INFO - Scanning for IOBoard devices...
+   INFO - No IOBoard devices detected
+   ```
+
+5. **Manual Test**
+   Run standalone scanner:
    ```powershell
    python src/serial/port_scanner.py
    ```
-   - Xem tất cả COM ports available
+   Xem tất cả COM ports và device names
 
 ### Connection Failed
 
@@ -305,10 +318,8 @@ config/app_config.json
     "enabled": true,
     "baudrate": 500000,
     "auto_mapping": true,
-    "auto_connect_on_startup": false,
     "reconnect_on_error": true,
-    "reconnect_interval": 5,
-    "manual_mapping": {}
+    "reconnect_interval": 5
   }
 }
 ```
@@ -317,28 +328,39 @@ config/app_config.json
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `enabled` | `false` | Enable serial features |
+| `enabled` | `true` | Enable/disable IOBoard serial output |
 | `baudrate` | `500000` | Serial baudrate |
-| `auto_mapping` | `true` | Auto-map universes |
-| `auto_connect_on_startup` | `false` | Auto-connect when app starts |
+| `auto_mapping` | `true` | Auto-map universes (always enabled) |
 | `reconnect_on_error` | `true` | Auto-reconnect on disconnect |
 | `reconnect_interval` | `5` | Seconds between reconnect attempts |
-| `manual_mapping` | `{}` | Manual universe mapping (admin) |
+
+**Note:** IOBoard hoạt động tự động ở background. Không có GUI. Chỉ cần set `"enabled": false` để tắt.
 
 ---
 
-## 🔐 Security & Admin Features
+## 🔐 Configuration
 
-### Admin-Only Features
+### Background Operation
 
-- ⚙️ **Manual Mapping**: Requires admin login
-- 🔌 **Baudrate Change**: Requires admin (via config)
+IOBoard hoạt động **hoàn toàn tự động**:
+- ✅ Auto-detect khi app khởi động
+- ✅ Auto-connect all boards
+- ✅ Auto-mapping universes
+- ✅ Silent operation (logs only)
+- ✅ No GUI interaction needed
 
-### User Features
+### Disable IOBoard
 
-- 🔍 **Scan IOBoards**: Available to all users
-- 🔌 **Connect/Disconnect**: Available to all users
-- 📊 **View Statistics**: Available to all users
+Edit `config/app_config.json`:
+```json
+{
+  "serial": {
+    "enabled": false
+  }
+}
+```
+
+Restart app để apply.
 
 ---
 
