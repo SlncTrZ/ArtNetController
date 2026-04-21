@@ -31,7 +31,7 @@ def main():
         # Create QApplication
         app = QApplication(sys.argv)
         app.setApplicationName("DMX Master")
-        app.setApplicationVersion("2.0.0")
+        app.setApplicationVersion("0.0.1")
         app.setOrganizationName("ArtNet Studio")
         
         # Set application style

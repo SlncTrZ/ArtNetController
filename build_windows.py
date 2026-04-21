@@ -3,13 +3,13 @@ import os, sys, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 
-VERSION = '1.1.2'
+VERSION = '0.0.3'
 APP_NAME = 'DMXMaster-LTS'
 ROOT_DIR = Path(__file__).parent
 BUILD_DIR = ROOT_DIR / 'build'
 DIST_DIR = ROOT_DIR / 'dist'
 # Use the version-specific spec file
-SPEC_FILE = ROOT_DIR / 'DMXMaster-LTS-1.1.2.spec'
+SPEC_FILE = ROOT_DIR / 'DMXMaster-LTS-0.0.3.spec'
 
 def run_cmd(cmd, desc):
     print(f'[RUN] {desc}')
@@ -22,9 +22,12 @@ def run_cmd(cmd, desc):
 def clean():
     print('[CLEAN] Removing old artifacts...')
     for d in [DIST_DIR, BUILD_DIR]:
-        if d.exists(): 
-            shutil.rmtree(d)
-            print(f'  Removed: {d}')
+        if d.exists():
+            try:
+                shutil.rmtree(d)
+                print(f'  Removed: {d}')
+            except PermissionError:
+                print(f'  Warning: Could not remove {d} (permission denied), continuing...')
     print('[OK] Clean complete')
 
 def build():

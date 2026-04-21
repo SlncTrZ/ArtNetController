@@ -12,7 +12,7 @@ Auto-Mapping Logic:
 import logging
 import threading
 import time
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Optional, Tuple, Callable, TYPE_CHECKING
 from dataclasses import dataclass
 
 try:
@@ -20,7 +20,12 @@ try:
     PYSERIAL_AVAILABLE = True
 except ImportError:
     PYSERIAL_AVAILABLE = False
+    serial = None  # Set to None for type checking
     logging.warning("pyserial not installed - Serial features disabled")
+
+# Type checking import
+if TYPE_CHECKING:
+    from serial import Serial
 
 from .ioboard_protocol import IOBoardProtocol, DMXPacket
 from .port_scanner import PortScanner, IOBoardInfo
@@ -32,7 +37,7 @@ logger = logging.getLogger(__name__)
 class BoardConnection:
     """Active connection to an IOBoard"""
     board_info: IOBoardInfo
-    port: serial.Serial
+    port: 'Serial'  # Use string annotation for forward reference
     universes: List[int]  # Mapped universes for this board
     packets_sent: int = 0
     errors: int = 0
@@ -75,6 +80,15 @@ class SerialController:
         # Performance tracking
         self.total_packets_sent = 0
         self.total_errors = 0
+        
+        # V1.3.0: License manager for universe validation
+        self._license_manager = None
+        try:
+            from src.utils.license import get_license_manager
+            self._license_manager = get_license_manager()
+            logger.info(f"License check: {self._license_manager.get_max_universes()} universes available")
+        except Exception as e:
+            logger.warning(f"License check failed: {e}")
         
         logger.info(f"Serial Controller initialized (baudrate: {baudrate})")
     
@@ -329,6 +343,13 @@ class SerialController:
         Returns:
             bool: True if sent successfully
         """
+        # V1.3.0: Validate universe against license limit
+        if self._license_manager:
+            is_valid, error_msg = self._license_manager.validate_universe(universe)
+            if not is_valid:
+                logger.debug(f"Serial DMX blocked: {error_msg}")
+                return False
+        
         # Find board responsible for this universe
         board_number = self.get_board_for_universe(universe)
         

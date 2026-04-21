@@ -324,6 +324,65 @@ class LicenseManager:
         # Trial users = No admin rights
         return False
     
+    def get_max_universes(self) -> int:
+        """
+        Get maximum universes based on license tier
+        
+        Returns:
+            4 - Free version (trial or no license)
+            512 - Licensed version (activated license)
+        """
+        if LICENSE_FILE.exists():
+            license_data = self._load_license()
+            if license_data and self._validate_license_offline(license_data):
+                # Licensed version - support 512 universes
+                logger.debug("License active: 512 universes available")
+                return 512
+        
+        # Free version (trial or no license) - only 4 universes
+        trial_info = self.get_trial_info()
+        if not trial_info['is_expired']:
+            logger.debug(f"Trial mode: 4 universes (trial {trial_info['days_remaining']} days remaining)")
+        else:
+            logger.debug("No license: 4 universes (trial expired)")
+        
+        return 4
+    
+    def get_license_tier(self) -> str:
+        """
+        Get license tier name for display
+        
+        Returns:
+            "FREE" or "LICENSED"
+        """
+        if LICENSE_FILE.exists():
+            license_data = self._load_license()
+            if license_data and self._validate_license_offline(license_data):
+                return "LICENSED"
+        
+        return "FREE"
+    
+    def validate_universe(self, universe: int) -> Tuple[bool, str]:
+        """
+        Validate if universe is allowed in current license tier
+        
+        Args:
+            universe: Universe number (0-511)
+            
+        Returns:
+            (is_valid, error_message)
+        """
+        max_universes = self.get_max_universes()
+        
+        if universe < 0:
+            return False, f"Invalid universe {universe} (must be >= 0)"
+        
+        if universe >= max_universes:
+            tier = self.get_license_tier()
+            return False, f"Universe {universe} not available in {tier} version (max: {max_universes-1})"
+        
+        return True, ""
+    
     def _load_license(self) -> Optional[dict]:
         """
         Load and decrypt license data from encrypted file

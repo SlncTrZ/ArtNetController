@@ -3,6 +3,7 @@ DMX View Tab - Tab hiển thị trạng thái DMX
 """
 
 import logging
+from collections import deque
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                            QLabel, QComboBox, QGroupBox, QScrollArea,
                            QSpinBox, QPushButton, QCheckBox, QProgressBar)
@@ -85,6 +86,10 @@ class DMXViewTab(QWidget):
         self.dmx_data = bytes(512)
         self.received_data = {}  # universe -> (data, source_ip, timestamp)
         self.artnet_controller = None  # Will be set by main_window
+        self.packet_timestamps = {}  # universe -> deque[timestamp]
+        self.rate_window_seconds = 2.0  # Sliding window for stable rate display
+        self.last_packet_time = 0.0
+        self.last_packet_time_by_universe = {}
         
         # Rate limiting for UI updates (prevent UI freeze)
         self.last_ui_update = 0
@@ -116,16 +121,22 @@ class DMXViewTab(QWidget):
         control_layout.addWidget(QLabel("Universe:"))
         self.universe_combo = QComboBox()
         self.universe_combo.setEditable(True)  # Allow typing universe number
-        # Load max universes from unified system config (admin-adjustable)
+        
+        # V1.3.0: Load max universes from license (4 or 512)
         try:
-            from system.config_manager import get_config_manager
-            max_universes = int(get_config_manager().get('universes.max_universes', 32))
-        except Exception:
-            max_universes = 32
-        max_universes = max(1, min(512, max_universes))
+            from src.utils.license import get_license_manager
+            license_manager = get_license_manager()
+            max_universes = license_manager.get_max_universes()
+            tier = license_manager.get_license_tier()
+            logger.info(f"DMX View: {tier} version - {max_universes} universes")
+        except Exception as e:
+            logger.warning(f"License check failed, defaulting to 4 universes: {e}")
+            max_universes = 4
+            tier = "FREE"
+        
         self.universe_combo.addItems([str(i) for i in range(max_universes)])
         self.universe_combo.currentTextChanged.connect(self.on_universe_changed)
-        self.universe_combo.setToolTip(f"Select universe (0-{max_universes-1})")
+        self.universe_combo.setToolTip(f"Select universe (0-{max_universes-1}) - {tier} Version")
         control_layout.addWidget(self.universe_combo)
         
         control_layout.addWidget(QLabel(" | "))
@@ -149,6 +160,24 @@ class DMXViewTab(QWidget):
         self.percentage_checkbox.setChecked(True)
         self.percentage_checkbox.toggled.connect(self.update_display)
         control_layout.addWidget(self.percentage_checkbox)
+        
+        control_layout.addWidget(QLabel(" | "))
+        
+        # Auto-clear timeout option with configurable value
+        self.auto_clear_checkbox = QCheckBox("Auto-Clear Timeout:")
+        self.auto_clear_checkbox.setChecked(True)  # Enabled by default
+        self.auto_clear_checkbox.setToolTip(
+            "Clear display when no DMX packets are received across all universes.\n"
+            "Stable/static DMX values are treated as valid active signal."
+        )
+        control_layout.addWidget(self.auto_clear_checkbox)
+        
+        self.timeout_spinbox = QSpinBox()
+        self.timeout_spinbox.setRange(1, 600)  # 0.1s to 60s (stored as deciseconds)
+        self.timeout_spinbox.setValue(5)  # Default 0.5s (5 deciseconds)
+        self.timeout_spinbox.setSuffix(" × 0.1s")
+        self.timeout_spinbox.setToolTip("Timeout in 0.1s increments (e.g., 5 = 0.5s)")
+        control_layout.addWidget(self.timeout_spinbox)
         
         # Refresh button
         self.refresh_button = QPushButton("Refresh")
@@ -217,7 +246,7 @@ class DMXViewTab(QWidget):
         
         # Data rate indicator
         self.data_rate_progress = QProgressBar()
-        self.data_rate_progress.setRange(0, 44)  # Max Art-Net rate
+        self.data_rate_progress.setRange(0, 50)  # Visual cap for displayed rate
         self.data_rate_progress.setValue(0)
         self.data_rate_progress.setFormat("DMX Rate: %v Hz")
         stats_layout.addWidget(self.data_rate_progress)
@@ -241,14 +270,36 @@ class DMXViewTab(QWidget):
         self.timeout_timer.timeout.connect(self.check_data_timeout)
         self.timeout_timer.start(1000)  # Check every second
         
-        # Rate calculation
-        self.last_update_time = 0
-        self.update_count = 0
-        self.update_rate = 0
+        # Rate calculation (sliding window)
+        self.update_rate = 0.0
         
-        # Timeout settings
-        self.data_timeout = 0.5  # Clear data if no update for 0.5 seconds
+        # Timeout settings - packet-based detection
+        # Trigger timeout only when no packets arrive across all universes
         self.timeout_cleared = False  # Flag to prevent spam logging
+
+    def _record_packet_activity(self, universe: int, timestamp: float):
+        """Record packet timestamp for timeout and rate calculations."""
+        packet_queue = self.packet_timestamps.setdefault(universe, deque())
+        packet_queue.append(timestamp)
+
+        cutoff = timestamp - self.rate_window_seconds
+        while packet_queue and packet_queue[0] < cutoff:
+            packet_queue.popleft()
+
+        self.last_packet_time = timestamp
+        self.last_packet_time_by_universe[universe] = timestamp
+
+    def _calculate_universe_rate(self, universe: int, timestamp: float) -> float:
+        """Calculate smoothed packet rate using sliding window."""
+        packet_queue = self.packet_timestamps.get(universe)
+        if not packet_queue:
+            return 0.0
+
+        if len(packet_queue) == 1:
+            return 1.0
+
+        window_span = max(timestamp - packet_queue[0], 0.1)
+        return len(packet_queue) / window_span
     
     def update_display_range(self):
         """Update display range - Show all 512 channels"""
@@ -347,34 +398,38 @@ class DMXViewTab(QWidget):
                 self.pending_update = False
     
     def check_data_timeout(self):
-        """Check if data is stale and clear if timeout exceeded"""
+        """Clear display only when packet stream is inactive for longer than timeout."""
+        # Skip timeout check if auto-clear is disabled
+        if not self.auto_clear_checkbox.isChecked():
+            return
+        
         import time
         current_time = time.time()
         
-        if self.current_universe in self.received_data:
-            _, _, timestamp = self.received_data[self.current_universe]
-            time_since_update = current_time - timestamp
-            
-            if time_since_update > self.data_timeout:
-                # Clear stale data ONLY ONCE
-                if not self.timeout_cleared:
-                    logger.info(f"Data timeout for universe {self.current_universe} ({time_since_update:.1f}s) - clearing display")
-                    self.dmx_data = bytes(512)  # All zeros
-                    self.data_source_label.setText("Source: No Data (Timeout)")
-                    self.update_display()
-                    self.update_rate = 0  # Reset rate to 0
-                    self.timeout_cleared = True  # Set flag to prevent spam
-            else:
-                # Reset flag when data is active
-                self.timeout_cleared = False
-        else:
-            # No data received yet - clear display if not already cleared
+        # Get timeout value from spinbox (in deciseconds, convert to seconds)
+        timeout_seconds = self.timeout_spinbox.value() * 0.1
+        
+        # If no data has ever arrived, nothing to clear.
+        if self.last_packet_time <= 0:
+            return
+
+        time_since_packet = current_time - self.last_packet_time
+        if time_since_packet > timeout_seconds:
             if not self.timeout_cleared:
-                self.dmx_data = bytes(512)  # All zeros
-                self.data_source_label.setText("Source: No Data")
+                logger.info(
+                    f"No DMX packets for {time_since_packet:.1f}s "
+                    f"(timeout={timeout_seconds}s) - clearing all universes"
+                )
+                self.received_data.clear()
+                self.packet_timestamps.clear()
+                self.last_packet_time_by_universe.clear()
+                self.dmx_data = bytes(512)
+                self.data_source_label.setText("Source: No Data (Packet Timeout)")
                 self.update_display()
-                self.update_rate = 0
+                self.update_rate = 0.0
                 self.timeout_cleared = True
+        else:
+            self.timeout_cleared = False
     
     def set_artnet_controller(self, controller):
         """Set reference to ArtNet controller"""
@@ -387,6 +442,7 @@ class DMXViewTab(QWidget):
         
         # Update received_data with timestamp (for timeout detection)
         self.received_data[universe] = (dmx_data, "Show Playback", timestamp)
+        self._record_packet_activity(universe, timestamp)
         
         if universe == self.current_universe:
             self.dmx_data = dmx_data
@@ -395,15 +451,10 @@ class DMXViewTab(QWidget):
             
             # Reset timeout flag when receiving new data
             self.timeout_cleared = False
+            self.update_rate = self._calculate_universe_rate(universe, timestamp)
             
-        # Update rate calculation
-        current_time = timestamp
-        self.update_count += 1
-        
-        if current_time - self.last_update_time >= 1.0:
-            self.update_rate = self.update_count
-            self.update_count = 0
-            self.last_update_time = current_time
+        else:
+            self.update_rate = self._calculate_universe_rate(self.current_universe, timestamp)
     
     def update_received_dmx(self, universe: int, dmx_data: bytes, source_ip: str):
         """Update received DMX data from Art-Net - WITH RATE LIMITING"""
@@ -414,6 +465,7 @@ class DMXViewTab(QWidget):
         
         # ALWAYS store data (no rate limiting for data storage)
         self.received_data[universe] = (dmx_data, source_ip, timestamp)
+        self._record_packet_activity(universe, timestamp)
         
         # Auto-add universe to combo if not exists
         universe_str = str(universe)
@@ -426,18 +478,10 @@ class DMXViewTab(QWidget):
             # Validate and clip channel count to 512 max
             dmx_data = dmx_data[:512] if len(dmx_data) > 512 else dmx_data
             self.dmx_data = dmx_data
-            
-            # Update rate calculation for current universe
-            self.update_count += 1
+            self.update_rate = self._calculate_universe_rate(universe, timestamp)
             
             # Reset timeout flag when receiving new data
             self.timeout_cleared = False
-
-            if time.time() - self.last_update_time >= 1.0:
-                self.update_rate = self.update_count
-                logger.debug(f"DMX rate: {self.update_count} packets in 1 second = {self.update_rate} Hz")
-                self.update_count = 0
-                self.last_update_time = time.time()
             
             # RATE LIMITED UI UPDATE (prevent UI freeze)
             current_time = timestamp
@@ -453,10 +497,17 @@ class DMXViewTab(QWidget):
                 self.pending_update = True
                 logger.debug(f"⏳ UI update delayed (rate limited)")
         else:
+            self.update_rate = self._calculate_universe_rate(self.current_universe, timestamp)
             logger.debug(f"⏭️ Skipping universe {universe} (not current: {self.current_universe})")
     
     def update_statistics(self):
         """Update statistics"""
+        import time
+
+        last_packet = self.last_packet_time_by_universe.get(self.current_universe, 0.0)
+        if last_packet > 0 and (time.time() - last_packet) > self.rate_window_seconds:
+            self.update_rate = 0.0
+
         if not self.dmx_data:
             return
         
@@ -471,13 +522,13 @@ class DMXViewTab(QWidget):
         self.avg_value_label.setText(f"Avg Value: {avg_value:.1f}")
         
         # Update rate
-        self.update_rate_label.setText(f"Update Rate: {self.update_rate} Hz")
+        self.update_rate_label.setText(f"Update Rate: {self.update_rate:.1f} Hz")
         # Use actual update rate instead of fixed 44Hz, but cap progress bar at 50Hz max
-        self.data_rate_progress.setValue(min(self.update_rate, 50))
-        self.data_rate_progress.setFormat(f"DMX Rate: {self.update_rate} Hz")
+        displayed_rate = min(int(round(self.update_rate)), 50)
+        self.data_rate_progress.setValue(displayed_rate)
+        self.data_rate_progress.setFormat(f"DMX Rate: {self.update_rate:.1f} Hz")
         
         # Update last update time
-        import time
         if self.current_universe in self.received_data:
             _, _, timestamp = self.received_data[self.current_universe]
             last_update = time.strftime("%H:%M:%S", time.localtime(timestamp))

@@ -258,6 +258,37 @@ class SettingsTab(QWidget):
         
         layout.addWidget(logging_group)
         
+        # Network adapter selection (V2.1)
+        network_adapter_group = QGroupBox("Network Adapter Selection (V2.1)")
+        adapter_layout = QFormLayout(network_adapter_group)
+        
+        self.network_adapter_combo = QComboBox()
+        self.network_adapter_combo.setToolTip(
+            "Select which network adapter to use for Art-Net communication.\n"
+            "This affects incoming DMX reception and device discovery.\n"
+            "Change requires restart of the application."
+        )
+        self.network_adapter_combo.currentTextChanged.connect(self.on_adapter_changed)
+        adapter_layout.addRow("Network Adapter:", self.network_adapter_combo)
+        
+        self.adapter_ip_label = QLabel()
+        self.adapter_ip_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+        adapter_layout.addRow("Adapter IP:", self.adapter_ip_label)
+        
+        adapter_info = QLabel(
+            "Selected adapter will receive incoming Art-Net packets.\n"
+            "For best compatibility with Depence/Resolume, select your primary network interface.\n"
+            "Changes take effect after restarting the application."
+        )
+        adapter_info.setStyleSheet("color: #666; padding: 10px; font-size: 10px;")
+        adapter_info.setWordWrap(True)
+        adapter_layout.addRow("", adapter_info)
+        
+        layout.addWidget(network_adapter_group)
+        
+        # V2.1: Populate network adapters
+        self._refresh_network_adapters()
+        
         # ArtNet Timecode settings
         timecode_group = QGroupBox("ArtNet Timecode")
         timecode_layout = QFormLayout(timecode_group)
@@ -409,8 +440,8 @@ class SettingsTab(QWidget):
         
         self.settings_tabs.addTab(security_widget, "Security")
     
-    def create_system_settings(self):
-        """Tạo System settings"""
+    def create_system_settings_legacy(self):
+        """Legacy System settings (deprecated, kept for reference)."""
         system_widget = QWidget()
         layout = QVBoxLayout(system_widget)
         
@@ -595,6 +626,11 @@ class SettingsTab(QWidget):
                     self.config_manager.get_app_config('system.playback_buffer_size', 100)
                 )
             
+            # V2.1: Network adapter selection
+            if hasattr(self, 'network_adapter_combo'):
+                bind_ip = self.config_manager.get_app_config('artnet.bind_ip', '0.0.0.0')
+                logger.info(f"Loading stored bind_ip: {bind_ip}")
+            
         except Exception as e:
             logger.error(f"Failed to load settings: {e}")
             QMessageBox.warning(self, "Load Error", f"Failed to load settings: {e}")
@@ -667,10 +703,17 @@ class SettingsTab(QWidget):
                 self.config_manager.set_app_config('system.log_level',
                                                    self.log_level_combo.currentText())
             
+            # V2.1: Network adapter selection - save selected adapter IP
+            if hasattr(self, 'network_adapter_combo'):
+                selected_adapter_ip = self.network_adapter_combo.currentData()
+                if selected_adapter_ip:
+                    self.config_manager.set_app_config('artnet.bind_ip', selected_adapter_ip)
+                    logger.info(f"Saved network adapter: {selected_adapter_ip}")
+            
             # Save to file
             self.config_manager.save_configs()
             
-            QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully.")
+            QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully.\n\nPlease restart the application for network adapter changes to take effect.")
             
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")
@@ -813,3 +856,73 @@ class SettingsTab(QWidget):
                 "Admin Mode",
                 "Admin mode disabled. Recording tab will be hidden after restart."
             )
+    
+    def _refresh_network_adapters(self):
+        """V2.1: Refresh network adapter list"""
+        try:
+            from src.utils.network_utils import get_network_adapters
+            
+            adapters = get_network_adapters()
+            
+            if adapters:
+                self.network_adapter_combo.clear()
+                
+                # Get current stored adapter from config
+                current_adapter_ip = self.config_manager.get_app_config(
+                    'artnet.bind_ip',
+                    self._get_default_adapter_ip()
+                )
+                
+                selected_index = 0
+                for index, (adapter_name, adapter_ip) in enumerate(adapters.items()):
+                    self.network_adapter_combo.addItem(f"{adapter_name} ({adapter_ip})", adapter_ip)
+                    
+                    # Select current adapter
+                    if adapter_ip == current_adapter_ip:
+                        selected_index = index
+                
+                self.network_adapter_combo.setCurrentIndex(selected_index)
+                self._update_adapter_ip_display()
+                
+                logger.info(f"Found {len(adapters)} network adapters")
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh network adapters: {e}")
+            # Fallback: add default adapters
+            self.network_adapter_combo.addItem("Primary Network (Auto-detect)", "auto")
+            self.network_adapter_combo.addItem("Loopback (127.0.0.1)", "127.0.0.1")
+            self.network_adapter_combo.addItem("Broadcast (0.0.0.0)", "0.0.0.0")
+    
+    def _get_default_adapter_ip(self) -> str:
+        """Get default adapter IP"""
+        try:
+            from src.utils.network_utils import get_primary_ip
+            return get_primary_ip()
+        except:
+            return "0.0.0.0"
+    
+    def on_adapter_changed(self, text):
+        """V2.1: Handle network adapter selection change"""
+        self._update_adapter_ip_display()
+    
+    def _update_adapter_ip_display(self):
+        """V2.1: Update the IP address display label"""
+        try:
+            current_ip = self.network_adapter_combo.currentData()
+            if current_ip:
+                self.adapter_ip_label.setText(str(current_ip))
+                
+                if current_ip == "0.0.0.0":
+                    self.adapter_ip_label.setToolTip(
+                        "Listen on all interfaces (broadcast mode).\n"
+                        "Note: Windows 0.0.0.0 binding receives broadcast only."
+                    )
+                elif current_ip == "auto":
+                    from src.utils.network_utils import get_primary_ip
+                    primary_ip = get_primary_ip()
+                    self.adapter_ip_label.setText(f"Auto-detected: {primary_ip}")
+                    self.adapter_ip_label.setToolTip(
+                        f"Will automatically use primary interface: {primary_ip}"
+                    )
+        except Exception as e:
+            logger.debug(f"Error updating adapter display: {e}")

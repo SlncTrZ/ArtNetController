@@ -1,6 +1,7 @@
 """
 Record Tab - Tab ghi và chỉnh sửa DMX (chỉ admin)
 V2.0: Added Timecode Sync Recording support
+V2.1: Added Timeline Editor for advanced trimming and editing
 """
 
 import logging
@@ -23,6 +24,7 @@ from src.system.timecode_receiver import (
 from src.system.crash_reporter import get_user_data_dir
 from src.show.dmx_recorder import DMXRecorder
 from src.gui.dialogs.create_show_dialog import CreateShowDialog
+from src.gui.widgets.timeline_editor import TimelineEditor
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +186,7 @@ class RecordTab(QWidget):
         self.universe_combo = QComboBox()
         # Respect admin-configured max universes from unified system config
         try:
-            from system.config_manager import get_config_manager
+            from src.system.config_manager import get_config_manager
             _max_universes = int(get_config_manager().get('universes.max_universes', 32))
         except Exception:
             _max_universes = 32
@@ -384,6 +386,25 @@ class RecordTab(QWidget):
         self.move_to_shows_button.setToolTip("Move recording to Show Manager library")
         self.move_to_shows_button.clicked.connect(self.move_recording_to_shows)
         table_controls.addWidget(self.move_to_shows_button)
+        
+        self.timeline_editor_button = QPushButton("✂ Timeline Editor")
+        self.timeline_editor_button.setEnabled(False)
+        self.timeline_editor_button.setToolTip("Open advanced timeline editor to trim DMX and music")
+        self.timeline_editor_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9c27b0;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7b1fa2;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.timeline_editor_button.clicked.connect(self.open_timeline_editor)
+        table_controls.addWidget(self.timeline_editor_button)
         
         self.delete_recording_button = QPushButton("Delete")
         self.delete_recording_button.setEnabled(False)
@@ -1489,10 +1510,12 @@ class RecordTab(QWidget):
         if selected_rows:
             self.load_recording_button.setEnabled(True)
             self.move_to_shows_button.setEnabled(True)
+            self.timeline_editor_button.setEnabled(True)
             self.delete_recording_button.setEnabled(True)
         else:
             self.load_recording_button.setEnabled(False)
             self.move_to_shows_button.setEnabled(False)
+            self.timeline_editor_button.setEnabled(False)
             self.delete_recording_button.setEnabled(False)
     
     def load_recording(self):
@@ -1724,6 +1747,197 @@ class RecordTab(QWidget):
         """Trim end of recording"""
         # TODO: Implement trim end
         QMessageBox.information(self, "Trim", "Trim functionality will be implemented")
+    
+    def open_timeline_editor(self):
+        """Open advanced timeline editor for trimming DMX and music"""
+        selected_rows = self.recordings_table.selectionModel().selectedRows()
+        
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "⚠️ Please select a recording first")
+            return
+        
+        row = selected_rows[0].row()
+        name_item = self.recordings_table.item(row, 0)
+        recording_json_path = Path(name_item.data(Qt.ItemDataRole.UserRole))
+        
+        try:
+            # Load recording
+            with open(recording_json_path, 'r', encoding='utf-8') as f:
+                recording_data = json.load(f)
+            
+            metadata = recording_data.get('metadata', {})
+            recording_name = metadata.get('name', recording_json_path.stem)
+            dmx_duration = metadata.get('duration', 0)
+            
+            # Get audio file info if exists
+            audio_file = recording_data.get('audio_file')
+            audio_duration = 0
+            audio_name = None
+            if audio_file:
+                audio_path = Path(audio_file)
+                if audio_path.exists():
+                    audio_name = audio_path.name
+                    # Try to get audio duration (placeholder - need mutagen or similar)
+                    try:
+                        import mutagen
+                        audio = mutagen.File(audio_path)
+                        if audio:
+                            audio_duration = audio.info.length
+                    except Exception as e:
+                        logger.warning(f"Could not read audio duration: {e}")
+                        audio_duration = dmx_duration  # Fallback to DMX duration
+            
+            # Create timeline editor dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Timeline Editor - {recording_name}")
+            dialog.setMinimumSize(1200, 600)
+            
+            dialog_layout = QVBoxLayout(dialog)
+            
+            # Info label
+            info_label = QLabel(
+                f"<b>{recording_name}</b><br>"
+                f"DMX Duration: {dmx_duration:.2f}s | "
+                f"Audio: {audio_name if audio_name else 'None'}"
+            )
+            dialog_layout.addWidget(info_label)
+            
+            # Timeline editor widget
+            timeline_editor = TimelineEditor()
+            dialog_layout.addWidget(timeline_editor)
+            
+            # Set DMX clip
+            timeline_editor.set_dmx_clip(dmx_duration, recording_name)
+            
+            # Set audio clip if exists
+            if audio_file and audio_duration > 0:
+                timeline_editor.set_audio_clip(0, audio_duration, audio_name or "Audio")
+            
+            # Store reference for audio_added signal
+            def on_audio_added(path, dur):
+                nonlocal audio_file
+                audio_file = path
+                info_label.setText(
+                    f"<b>{recording_name}</b><br>"
+                    f"DMX Duration: {dmx_duration:.2f}s | "
+                    f"Audio: {Path(path).name} ({dur:.1f}s)"
+                )
+            timeline_editor.audio_added.connect(on_audio_added)
+            
+            # Fit all on load
+            timeline_editor.fit_all()
+            
+            # Dialog buttons
+            button_layout = QHBoxLayout()
+            
+            apply_button = QPushButton("Apply Changes")
+            apply_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #4caf50;
+                    color: white;
+                    font-weight: bold;
+                    padding: 8px 20px;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+            apply_button.clicked.connect(lambda: self._apply_timeline_changes(
+                dialog, timeline_editor, recording_json_path, recording_data
+            ))
+            button_layout.addWidget(apply_button)
+            
+            cancel_button = QPushButton("Cancel")
+            cancel_button.clicked.connect(dialog.reject)
+            button_layout.addWidget(cancel_button)
+            
+            button_layout.addStretch()
+            dialog_layout.addLayout(button_layout)
+            
+            # Show dialog
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"Failed to open timeline editor: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"❌ Failed to open timeline editor:\n{str(e)}"
+            )
+    
+    def _apply_timeline_changes(self, dialog, timeline_editor, recording_path, original_data):
+        """Apply timeline editor changes to recording"""
+        try:
+            # Get clips from timeline
+            dmx_clip = timeline_editor.get_dmx_clip()
+            audio_clip = timeline_editor.get_audio_clip()
+            
+            if not dmx_clip:
+                QMessageBox.warning(self, "No DMX Clip", "⚠️ No DMX clip found in timeline")
+                return
+            
+            # Update recording metadata
+            metadata = original_data.get('metadata', {})
+            metadata['duration'] = dmx_clip.duration
+            
+            # Update timestamps in DMX data if needed (trim start)
+            if dmx_clip.start_time > 0:
+                # Need to trim DMX data
+                trim_offset = dmx_clip.start_time
+                
+                # Load binary DMX data and trim
+                recording_dmxrec = recording_path.with_suffix('.dmxrec')
+                if recording_dmxrec.exists():
+                    # TODO: Implement binary trimming
+                    logger.info(f"Would trim DMX recording by {trim_offset}s from start")
+                    QMessageBox.information(
+                        self,
+                        "Not Implemented",
+                        f"Binary DMX trimming not yet implemented.\n"
+                        f"Would trim {trim_offset:.2f}s from start and "
+                        f"set duration to {dmx_clip.duration:.2f}s"
+                    )
+                    return
+            
+            # Update audio file offset if changed
+            if audio_clip:
+                # Store audio offset in metadata
+                metadata['audio_offset'] = audio_clip.start_time
+                logger.info(f"Audio offset: {audio_clip.start_time:.2f}s")
+            
+            # Update audio file if added via timeline editor
+            added_audio = timeline_editor.get_added_audio_path()
+            if added_audio:
+                original_data['audio_file'] = added_audio
+                logger.info(f"Audio file set: {added_audio}")
+            
+            # Save updated recording
+            with open(recording_path, 'w', encoding='utf-8') as f:
+                json.dump(original_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Timeline changes applied to {recording_path.name}")
+            
+            QMessageBox.information(
+                self,
+                "Success",
+                f"✅ Timeline changes applied!\n\n"
+                f"DMX Duration: {dmx_clip.duration:.2f}s\n"
+                f"{'Audio Offset: ' + str(audio_clip.start_time) + 's' if audio_clip else ''}"
+            )
+            
+            # Refresh recordings list
+            self.refresh_recordings()
+            
+            # Close dialog
+            dialog.accept()
+            
+        except Exception as e:
+            logger.error(f"Failed to apply timeline changes: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"❌ Failed to apply changes:\n{str(e)}"
+            )
     
     def auto_trim_silence(self):
         """Auto trim silence from recording"""

@@ -238,9 +238,13 @@ class ShowManager:
         for elem in metadata_elem:
             value = elem.text
             if elem.tag == 'universes':
-                value = [int(x.strip()) for x in value.split(',') if x.strip()]
+                # Empty XML element text becomes None; treat as no universes.
+                if not value:
+                    value = []
+                else:
+                    value = [int(x.strip()) for x in value.split(',') if x.strip()]
             elif elem.tag in ['duration', 'bpm']:
-                value = float(value)
+                value = float(value) if value not in (None, '') else 0.0
             metadata_dict[elem.tag] = value
         
         metadata = ShowMetadata(**metadata_dict)
@@ -254,9 +258,9 @@ class ShowManager:
                 for elem in item_elem:
                     value = elem.text
                     if elem.tag in ['duration', 'start_time', 'fade_in', 'fade_out']:
-                        value = float(value)
+                        value = float(value) if value not in (None, '') else 0.0
                     elif elem.tag == 'loop':
-                        value = value.lower() == 'true'
+                        value = str(value).lower() == 'true'
                     item_dict[elem.tag] = value
                 playlist.append(PlaylistItem(**item_dict))
         
@@ -277,9 +281,9 @@ class ShowManager:
                     else:
                         value = elem.text
                         if elem.tag in ['timestamp', 'duration', 'fade_time']:
-                            value = float(value)
+                            value = float(value) if value not in (None, '') else 0.0
                         elif elem.tag == 'universe':
-                            value = int(value)
+                            value = int(value) if value not in (None, '') else 0
                         scene_dict[elem.tag] = value
                 scenes.append(DMXScene(**scene_dict))
         

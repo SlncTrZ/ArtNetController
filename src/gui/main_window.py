@@ -46,6 +46,8 @@ except ImportError:
 from src.utils.license import LicenseManager
 from src.gui.dialogs.license_dialog import LicenseDialog
 
+logger = logging.getLogger(__name__)
+
 # Import IOBoard Serial Controller (background operation)
 try:
     from src.serial.serial_controller import SerialController
@@ -53,8 +55,6 @@ try:
 except ImportError:
     SERIAL_AVAILABLE = False
     logger.warning("Serial module not available - IOBoard features disabled")
-
-logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     """Main application window"""
@@ -474,16 +474,42 @@ class MainWindow(QMainWindow):
         """Setup status bar"""
         self.status_bar = self.statusBar()
         
+        # V1.3.0: License status label
+        self.license_status_label = QLabel()
+        self._update_license_status_label()
+        self.status_bar.addWidget(self.license_status_label)
+        
         # Status widget
         self.status_widget = StatusWidget()
         self.status_bar.addPermanentWidget(self.status_widget)
         
         self.status_bar.showMessage("Ready")
     
+    def _update_license_status_label(self):
+        """Update license status label in status bar"""
+        try:
+            tier = self.license_manager.get_license_tier()
+            max_universes = self.license_manager.get_max_universes()
+            
+            if tier == "FREE":
+                self.license_status_label.setText(f"🆓 FREE Version - {max_universes} Universes")
+                self.license_status_label.setStyleSheet("color: orange; padding: 5px; font-weight: bold;")
+            else:
+                self.license_status_label.setText(f"✓ LICENSED - {max_universes} Universes")
+                self.license_status_label.setStyleSheet("color: #4CAF50; padding: 5px; font-weight: bold;")
+        except Exception as e:
+            logger.error(f"Failed to update license status: {e}")
+            self.license_status_label.setText("License: Unknown")
+            self.license_status_label.setStyleSheet("color: gray; padding: 5px;")
+    
     def init_artnet_controller(self):
         """Initialize DMX Master"""
         try:
-            self.artnet_controller = ArtNetController()
+            # V2.1: Get bind_ip from config
+            bind_ip = self.config_manager.get_app_config('artnet.bind_ip', '0.0.0.0')
+            logger.info(f"Initializing ArtNetController with bind_ip: {bind_ip}")
+            
+            self.artnet_controller = ArtNetController(bind_ip=bind_ip)
             
             # Set callbacks
             self.artnet_controller.dmx_received_callback = self.on_dmx_received

@@ -8,7 +8,7 @@ import socket
 import threading
 import time
 import logging
-from typing import List, Dict, Callable, Optional
+from typing import List, Dict, Callable, Optional, Any
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,7 @@ class ArtNetPoll(ArtNetPacket):
 
 class ArtNetDMX(ArtNetPacket):
     """Art-Net DMX packet để gửi DMX data"""
+    PROTOCOL_VERSION = 14  # Art-Net 4 protocol version
     
     def __init__(self, universe: int = 0, sequence: int = 0, dmx_data: bytes = None):
         super().__init__()
@@ -89,11 +90,15 @@ class ArtNetDMX(ArtNetPacket):
         
     def pack(self) -> bytes:
         length = len(self.dmx_data)
-        self.data = struct.pack('<BBHH', 
-                               self.sequence, 
-                               self.physical,
-                               self.universe,
-                               length) + self.dmx_data
+        # ArtDMX payload (after OpCode):
+        #   ProtVerHi, ProtVerLo, Sequence, Physical, Universe(LE), Length(BE), Data
+        self.data = (
+            struct.pack('>H', self.PROTOCOL_VERSION)
+            + struct.pack('BB', self.sequence, self.physical)
+            + struct.pack('<H', self.universe)
+            + struct.pack('>H', length)
+            + self.dmx_data
+        )
         return super().pack()
     
     @classmethod
@@ -110,7 +115,8 @@ class ArtNetDMX(ArtNetPacket):
         # Byte 6-7: Length (Big Endian) - số bytes DMX data
         # Byte 8+: DMX data
         
-        version = struct.unpack('<H', payload[0:2])[0]
+        # Protocol version is transmitted as big-endian (Hi, Lo).
+        version = struct.unpack('>H', payload[0:2])[0]
         sequence = payload[2]
         physical = payload[3]
         universe = struct.unpack('<H', payload[4:6])[0]
@@ -167,6 +173,15 @@ class ArtNetController:
         
         # V2.0: Timecode callback support
         self.timecode_callbacks = []
+        
+        # V1.3.0: License-based universe limits
+        self._license_manager = None
+        self._max_universes = 512  # Default to max, will be limited by license
+
+        # Glitch detector: detect short full-255 flashes then recovery.
+        self._glitch_candidates: Dict[int, Dict[str, Any]] = {}
+        self._glitch_window_seconds = 0.20
+        self._glitch_max_flash_frames = 2
 
         # Thread locks
         self.nodes_lock = threading.Lock()
@@ -179,21 +194,69 @@ class ArtNetController:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            
+            # V2.1: Windows fix - bind to specific interface instead of 0.0.0.0
+            # On Windows, binding to 0.0.0.0 only receives broadcast, not unicast
+            # Binding to specific IP receives both broadcast and unicast
+            bind_ip = self.bind_ip
+            
+            # Handle "auto" selection or 0.0.0.0 - auto-detect primary interface
+            if self.bind_ip == "0.0.0.0" or self.bind_ip == "auto":
+                # Auto-detect primary network interface IP for Windows compatibility
+                try:
+                    import socket as sock_module
+                    # Get primary interface IP by connecting to Google DNS (doesn't actually send)
+                    temp_socket = sock_module.socket(sock_module.AF_INET, sock_module.SOCK_DGRAM)
+                    temp_socket.connect(("8.8.8.8", 80))
+                    primary_ip = temp_socket.getsockname()[0]
+                    temp_socket.close()
+                    
+                    # Also listen on localhost for same-machine communication
+                    bind_ip = primary_ip
+                    logger.info(f"Auto-detected primary interface: {primary_ip}")
+                except Exception as e:
+                    logger.warning(f"Could not auto-detect primary interface: {e}, falling back to 127.0.0.1")
+                    bind_ip = "127.0.0.1"
+            
             self.socket.settimeout(1.0)  # 1 second timeout for debugging
             
             # Bind to port
-            self.socket.bind((self.bind_ip, self.port))
+            self.socket.bind((bind_ip, self.port))
             
-            logger.info(f"Art-Net socket bound to {self.bind_ip}:{self.port}")
+            logger.info(f"Art-Net socket bound to {bind_ip}:{self.port}")
             logger.info(f"Listening for Art-Net on UDP port {self.port}")
-            logger.info(f"Send Art-Net to: 127.0.0.1, {self.bind_ip}, or 255.255.255.255")
+            logger.info(f"Send Art-Net to: 127.0.0.1, {bind_ip}, or 255.255.255.255")
+            
+            # V2.1: Create second socket on localhost to support same-machine apps (Depence, Resolume)
+            if bind_ip != "127.0.0.1":
+                try:
+                    self.loopback_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self.loopback_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    self.loopback_socket.bind(("127.0.0.1", self.port))
+                    logger.info(f"Created additional loopback listener on 127.0.0.1:{self.port}")
+                except Exception as e:
+                    logger.warning(f"Could not create loopback socket: {e}")
+                    self.loopback_socket = None
+            else:
+                self.loopback_socket = None
             
             # Start receive thread
             self.running = True
             self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
             self.receive_thread.start()
             
-            logger.info(f"Art-Net controller started on {self.bind_ip}:{self.port}")
+            logger.info(f"Art-Net controller started successfully")
+            
+            # V1.3.0: Initialize license manager and get max universes
+            try:
+                from src.utils.license import get_license_manager
+                self._license_manager = get_license_manager()
+                self._max_universes = self._license_manager.get_max_universes()
+                tier = self._license_manager.get_license_tier()
+                logger.info(f"License: {tier} version - {self._max_universes} universes available")
+            except Exception as e:
+                logger.warning(f"License check failed, defaulting to 4 universes: {e}")
+                self._max_universes = 4
             
             # V2.2: REMOVED auto-poll on startup
             # User complaint: Software sends ArtPoll Reply without receiving ArtPoll request
@@ -247,6 +310,13 @@ class ArtNetController:
         
         if self.socket:
             self.socket.close()
+        
+        # V2.1: Close loopback socket if opened for Windows multi-interface support
+        if hasattr(self, 'loopback_socket') and self.loopback_socket:
+            try:
+                self.loopback_socket.close()
+            except:
+                pass
             
         if self.receive_thread:
             self.receive_thread.join(timeout=2.0)
@@ -261,6 +331,13 @@ class ArtNetController:
         # V2.0: Skip sending if output is paused (recording safety)
         if self.output_paused:
             return False
+        
+        # V1.3.0: Validate universe against license limit
+        if self._license_manager:
+            is_valid, error_msg = self._license_manager.validate_universe(universe)
+            if not is_valid:
+                logger.warning(f"Cannot send DMX: {error_msg}")
+                return False
             
         try:
             # Create DMX packet
@@ -327,6 +404,13 @@ class ArtNetController:
         """
         if not self.running or not self.socket:
             return False
+        
+        # V1.3.0: Validate universe against license limit
+        if self._license_manager:
+            is_valid, error_msg = self._license_manager.validate_universe(universe)
+            if not is_valid:
+                logger.warning(f"Cannot send DMX: {error_msg}")
+                return False
         
         try:
             # Create DMX packet
@@ -468,6 +552,52 @@ class ArtNetController:
             
         except Exception as e:
             logger.error(f"Error handling timecode packet: {e}")
+
+    def _run_glitch_detector(self, universe: int, previous_data: Optional[bytes], current_data: bytes, source_ip: str):
+        """Detect transient all-255 flashes (1-2 frames) and log warning."""
+        now = time.monotonic()
+
+        # Housekeeping: clear stale candidates.
+        stale_universes = [
+            uni for uni, cand in self._glitch_candidates.items()
+            if now - cand.get('start', now) > self._glitch_window_seconds
+        ]
+        for uni in stale_universes:
+            self._glitch_candidates.pop(uni, None)
+
+        current_is_full_255 = len(current_data) == 512 and all(v == 255 for v in current_data)
+        previous_is_full_255 = previous_data is not None and len(previous_data) == 512 and all(v == 255 for v in previous_data)
+
+        if current_is_full_255:
+            if previous_data is not None and not previous_is_full_255:
+                self._glitch_candidates[universe] = {
+                    'start': now,
+                    'flash_frames': 1,
+                    'source_ip': source_ip,
+                }
+            elif universe in self._glitch_candidates:
+                candidate = self._glitch_candidates[universe]
+                if now - candidate['start'] <= self._glitch_window_seconds:
+                    candidate['flash_frames'] = min(
+                        self._glitch_max_flash_frames + 1,
+                        candidate.get('flash_frames', 1) + 1
+                    )
+            return
+
+        candidate = self._glitch_candidates.get(universe)
+        if not candidate:
+            return
+
+        elapsed = now - candidate['start']
+        flash_frames = candidate.get('flash_frames', 1)
+        if elapsed <= self._glitch_window_seconds and 1 <= flash_frames <= self._glitch_max_flash_frames:
+            logger.warning(
+                "GLITCH DETECTOR: transient full-255 flash detected "
+                f"(universe={universe}, frames={flash_frames}, duration_ms={elapsed * 1000:.1f}, "
+                f"flash_source={candidate.get('source_ip', 'unknown')}, recover_source={source_ip})"
+            )
+
+        self._glitch_candidates.pop(universe, None)
     
     def _handle_dmx_packet(self, payload: bytes, addr: tuple):
         """Xử lý DMX packet với optimization để giảm load"""
@@ -484,6 +614,13 @@ class ArtNetController:
         
         universe = dmx_info['universe']
         dmx_data = dmx_info['dmx_data']
+        
+        # V1.3.0: Validate universe against license limit
+        if self._license_manager:
+            is_valid, error_msg = self._license_manager.validate_universe(universe)
+            if not is_valid:
+                logger.debug(f"Ignoring DMX packet: {error_msg}")
+                return
         
         # VALIDATE: Clip to 512 channels max (prevent 515 channel bug)
         if len(dmx_data) > 512:
@@ -525,6 +662,9 @@ class ArtNetController:
             
             # Update local state
             self.dmx_universe_data[universe] = dmx_data_copy
+
+        # Detect short full-255 flashes before forwarding to GUI/output.
+        self._run_glitch_detector(universe, previous_data, dmx_data_copy, addr[0])
         
         # Auto-forward ONLY if enabled and nodes configured
         if self.auto_forward_enabled and self.universe_mapping:
@@ -573,19 +713,21 @@ class ArtNetController:
         """
         ip_address = addr[0]
         
-        # V2.0: Ignore poll replies from ourselves
-        try:
-            import socket as sock
-            s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            
-            if ip_address == local_ip or ip_address == "127.0.0.1":
-                logger.debug(f"Ignoring poll reply from self: {ip_address}")
-                return
-        except:
-            pass  # Continue if can't determine local IP
+        # V2.3: REMOVED self-detection filter
+        # Reason: In loopback adapter scenarios (e.g., DMX Master on 192.168.1.20 
+        # broadcasting to Depence on 200.133.200.133 via KM-TEST adapter),
+        # it's CORRECT to see self on the loopback IP because that's how 
+        # Art-Net discovery works across multiple adapters.
+        # 
+        # Example valid scenario:
+        # - DMX Master: 192.168.1.20 (Intel Ethernet)
+        # - Loopback test: 200.133.200.133 (KM-TEST for Depence)
+        # - Both should be detected as valid Art-Net nodes
+        #
+        # Only filter actual localhost (127.0.0.1)
+        if ip_address == "127.0.0.1" or ip_address == "::1":
+            logger.debug(f"Ignoring poll reply from localhost: {ip_address}")
+            return
         
         try:
             # Minimum payload size check
@@ -593,8 +735,9 @@ class ArtNetController:
                 logger.warning(f"ArtPollReply from {ip_address} too short: {len(payload)} bytes")
                 return
             
-            # Parse ShortName (byte 18-35, 18 bytes, null-terminated)
-            short_name_bytes = payload[18:36]
+            # Parse ShortName (spec byte 26-43 → payload byte 16-33, 18 bytes, null-terminated)
+            SHORTNAME_OFFSET = 16  # 26 - 10
+            short_name_bytes = payload[SHORTNAME_OFFSET:SHORTNAME_OFFSET+18]
             try:
                 short_name = short_name_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
             except:
@@ -603,8 +746,9 @@ class ArtNetController:
             if not short_name:
                 short_name = f"Node_{ip_address.split('.')[-1]}"
             
-            # Parse LongName (byte 36-99, 64 bytes, null-terminated)
-            long_name_bytes = payload[36:100]
+            # Parse LongName (spec byte 44-107 → payload byte 34-97, 64 bytes, null-terminated)
+            LONGNAME_OFFSET = 34  # 44 - 10
+            long_name_bytes = payload[LONGNAME_OFFSET:LONGNAME_OFFSET+64]
             try:
                 long_name = long_name_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
             except:
@@ -613,34 +757,64 @@ class ArtNetController:
             if not long_name:
                 long_name = f"Art-Net Node at {ip_address}"
             
-            # Parse NumPorts (byte 164-165, High byte + Low byte)
-            # CRITICAL FIX V2.2: Art-Net spec says Hi byte FIRST (at byte 164)
-            # Byte 164: NumPortsHi (MSB) 
-            # Byte 165: NumPortsLo (LSB)
-            # Fix: 65280 (0xFF00) was caused by reading bytes in wrong order
-            # Example: Device sends [0x00, 0x08] → should be 8, not 2048
-            num_ports_hi = payload[164] if len(payload) > 164 else 0
-            num_ports_lo = payload[165] if len(payload) > 165 else 1
+            # CRITICAL FIX V2.3: Correct Art-Net PollReply payload structure
+            # Art-Net spec counts bytes from start of FULL packet (including header)
+            # BUT ArtNetPacket.unpack() returns PAYLOAD ONLY (strips 10-byte header+opcode)
+            # So we need to SUBTRACT 10 from spec byte numbers!
+            #
+            # Spec numbering → Payload offset:
+            # Byte 0-7: Header "Art-Net\x00" → STRIPPED by unpack()
+            # Byte 8-9: OpCode (0x2100) → STRIPPED by unpack()
+            # Byte 10: IP[0] → payload[0]
+            # ...
+            # Byte 164-165: NumPorts → payload[154-155]
+            # Byte 166-169: PortTypes[4] → payload[156-159]
+            # Byte 170-173: GoodInput[4] → payload[160-163]
+            # Byte 174-177: GoodOutput[4] → payload[164-167]
+            # Byte 178-181: SwIn[4] → payload[168-171]
+            # Byte 182-185: SwOut[4] → payload[172-175]
+            
+            # Parse NumPorts (spec byte 172-173 → payload byte 162-163)
+            NUMPORTS_OFFSET = 162  # 172 - 10
+            num_ports_hi = payload[NUMPORTS_OFFSET] if len(payload) > NUMPORTS_OFFSET else 0
+            num_ports_lo = payload[NUMPORTS_OFFSET + 1] if len(payload) > NUMPORTS_OFFSET + 1 else 0
             port_count = (num_ports_hi << 8) | num_ports_lo
             
             # Debug: Log raw bytes
-            if len(payload) > 165:
-                logger.debug(f"NumPorts raw bytes: Hi=0x{num_ports_hi:02X}, Lo=0x{num_ports_lo:02X}, Result={port_count}")
+            if len(payload) > NUMPORTS_OFFSET + 1:
+                logger.debug(f"NumPorts raw bytes: payload[{NUMPORTS_OFFSET}]=0x{num_ports_hi:02X}, payload[{NUMPORTS_OFFSET+1}]=0x{num_ports_lo:02X}, Result={port_count}")
             
             # V2.0: Hỗ trợ unlimited ports - không giới hạn
             # Validate port count (chỉ check hợp lệ, không cap)
             if port_count == 0:
-                logger.warning(f"Node {ip_address} reported 0 ports, defaulting to 1")
-                port_count = 1
+                logger.warning(f"Node {ip_address} reported 0 ports, defaulting to 4")
+                port_count = 4  # Default to 4 ports (standard Art-Net)
+            elif port_count > 4:
+                # For devices advertising >4 ports, this is the total universe count
+                # Each PollReply represents 4 ports (SwIn array size), so this is informational
+                logger.info(f"Node {ip_address} has {port_count} total ports (multi-reply device)")
             
-            # Parse SubSwitch (byte 11) for universe
-            sub_switch = payload[11] if len(payload) > 11 else 0
+            # Parse NetSwitch (spec byte 18 → payload byte 8) and SubSwitch (spec byte 19 → payload byte 9)
+            net_switch = payload[8] if len(payload) > 8 else 0
+            sub_switch = payload[9] if len(payload) > 9 else 0
             
-            # Parse NetSwitch (byte 10) for network
-            net_switch = payload[10] if len(payload) > 10 else 0
+            # Parse SwIn[0] (spec byte 186 → payload byte 176)
+            SWIN_OFFSET = 176  # 186 - 10
+            sw_in_0 = payload[SWIN_OFFSET] if len(payload) > SWIN_OFFSET else 0
             
-            # Calculate base universe (simplified)
-            universe = (net_switch << 8) | sub_switch
+            # Calculate base universe from Net:SubNet:Universe addressing
+            # Formula: Universe = (Net << 8) | (SubNet << 4) | Universe
+            # But for display, we use simpler: (SubNet << 4) | SwIn[0]
+            # This gives us the first universe in the range advertised by this PollReply
+            base_universe = (sub_switch << 4) | (sw_in_0 & 0x0F)
+            
+            # For display purposes, show the universe range
+            # Each PollReply advertises 4 consecutive universes via SwIn[0-3]
+            universe = base_universe
+            
+            # Debug logging
+            if len(payload) > SWIN_OFFSET:
+                logger.debug(f"Universe calc: Net={net_switch}, SubNet={sub_switch}, SwIn[0]={sw_in_0}, Base Universe={base_universe}")
             
             # Parse Status1 (byte 15) for node type
             status1 = payload[15] if len(payload) > 15 else 0
@@ -714,16 +888,12 @@ class ArtNetController:
         logger.debug(f"Received valid Art-Net Poll from {addr[0]}, responding...")
         
         try:
-            # Đọc max_universes từ config
-            try:
-                from system.config_manager import get_config_manager
-                max_universes = int(get_config_manager().get('universes.max_universes', 32))
-            except Exception:
-                max_universes = 32
+            # V1.3.0: Đọc max_universes từ license (4 or 512)
+            max_universes = self._max_universes
             
             # Tính số PollReply cần gửi (mỗi reply = 4 universes)
             num_replies = (max_universes + 3) // 4  # Round up division
-            num_replies = min(num_replies, 64)  # Max 64 replies = 256 universes
+            num_replies = min(num_replies, 128)  # Max 128 replies = 512 universes
             
             logger.debug(f"Sending {num_replies} PollReply packets for {max_universes} universes")
             

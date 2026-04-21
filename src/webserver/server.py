@@ -27,7 +27,8 @@ class MP3UploadServer:
         self.app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB default
         
         # Configure upload settings
-        self.upload_path = Path(config_manager.get_app_config('webserver.upload_path', 'data/music'))
+        raw_upload_path = config_manager.get_app_config('webserver.upload_path', 'data/music')
+        self.upload_path = self._resolve_upload_path(raw_upload_path)
         self.upload_path.mkdir(parents=True, exist_ok=True)
         
         self.allowed_extensions = {'mp3', 'wav', 'flac', 'm4a', 'ogg'}
@@ -35,6 +36,33 @@ class MP3UploadServer:
         self.setup_routes()
         self.server_thread = None
         self.is_running = False
+
+    def _resolve_upload_path(self, configured_path: str) -> Path:
+        """Resolve upload path to a writable location.
+
+        Relative paths are anchored under the app data directory to avoid
+        permission issues when running from protected install locations.
+        """
+        path = Path(configured_path)
+
+        if not path.is_absolute():
+            # ConfigManager uses: <AppData>/DMX Master LTS/config
+            # We anchor relative upload paths at: <AppData>/DMX Master LTS
+            app_root = Path(self.config_manager.config_dir).parent
+            path = app_root / path
+
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+        except PermissionError:
+            fallback = Path(self.config_manager.config_dir).parent / "data" / "music"
+            fallback.mkdir(parents=True, exist_ok=True)
+            logger.warning(
+                "Upload path '%s' is not writable, falling back to '%s'",
+                configured_path,
+                fallback,
+            )
+            return fallback
     
     def setup_routes(self):
         """Setup Flask routes"""

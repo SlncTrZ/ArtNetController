@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                            QTableWidgetItem, QPushButton, QGroupBox, QLabel,
                            QLineEdit, QSpinBox, QComboBox, QHeaderView,
                            QMessageBox, QProgressBar, QDialog, QFormLayout,
-                           QDialogButtonBox, QCheckBox)
+                           QDialogButtonBox, QCheckBox, QScrollArea)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
@@ -38,9 +38,25 @@ class UniverseMappingDialog(QDialog):
         info_layout.addRow("Port Count:", QLabel(str(self.node.port_count)))
         layout.addWidget(info_group)
         
-        # Port mapping
+        # Port mapping with scroll area
         mapping_group = QGroupBox("Port → Universe Mapping")
-        mapping_layout = QFormLayout(mapping_group)
+        mapping_outer_layout = QVBoxLayout(mapping_group)
+        
+        # Create scroll area for port mappings
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Widget inside scroll area
+        scroll_widget = QWidget()
+        mapping_layout = QFormLayout(scroll_widget)
+        
+        # Add info label if many ports
+        if self.node.port_count > 16:
+            info_label = QLabel(f"⚠️ Device has {self.node.port_count} ports - scroll to configure all")
+            info_label.setStyleSheet("color: #FF8800; font-weight: bold; padding: 5px;")
+            mapping_layout.addRow(info_label)
         
         for port_num in range(self.node.port_count):
             port_layout = QHBoxLayout()
@@ -48,15 +64,28 @@ class UniverseMappingDialog(QDialog):
             # Universe spinbox
             universe_spin = QSpinBox()
             universe_spin.setRange(0, 32767)  # ArtNet universe range
-            universe_spin.setValue(self.current_mapping.get(port_num, 0))
+            universe_spin.setValue(self.current_mapping.get(port_num, port_num))  # Default: port_num
             universe_spin.setPrefix("Universe ")
+            universe_spin.setMinimumWidth(150)
             self.port_spinboxes[port_num] = universe_spin
             port_layout.addWidget(universe_spin)
+            
+            # Add description label
+            desc_label = QLabel(f"(Physical output {port_num})")
+            desc_label.setStyleSheet("color: gray;")
+            port_layout.addWidget(desc_label)
             
             port_layout.addStretch()
             
             mapping_layout.addRow(f"Port {port_num}:", port_layout)
         
+        scroll_area.setWidget(scroll_widget)
+        
+        # Set maximum height for scroll area (max 400px, or adjust based on screen)
+        scroll_area.setMaximumHeight(400)
+        scroll_area.setMinimumHeight(min(200, self.node.port_count * 35 + 50))
+        
+        mapping_outer_layout.addWidget(scroll_area)
         layout.addWidget(mapping_group)
         
         # Buttons
@@ -66,6 +95,10 @@ class UniverseMappingDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+        
+        # Set dialog size
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(400)
     
     def get_mapping(self) -> dict:
         """Get the configured mapping"""

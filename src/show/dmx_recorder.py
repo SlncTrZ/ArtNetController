@@ -150,6 +150,14 @@ class DMXRecorder:
         
         # Thread safety
         self._write_lock = threading.Lock()
+        
+        # V1.3.0: License manager for universe validation
+        self._license_manager = None
+        try:
+            from src.utils.license import get_license_manager
+            self._license_manager = get_license_manager()
+        except Exception as e:
+            logger.warning(f"License check unavailable: {e}")
     
     def start_recording(self, fps: float = 40.0):
         """Start recording to binary file with monotonic time"""
@@ -186,6 +194,13 @@ class DMXRecorder:
         if not self.is_recording or not self.file:
             return False
         
+        # V1.3.0: Validate universe against license limit
+        if self._license_manager:
+            is_valid, error_msg = self._license_manager.validate_universe(universe)
+            if not is_valid:
+                # Silently drop frames for universes beyond license limit
+                return False
+        
         try:
             # Use monotonic time for accurate timing
             timestamp = time.monotonic() - self.start_time_mono
@@ -203,7 +218,6 @@ class DMXRecorder:
             
         except Exception as e:
             logger.error(f"Failed to write frame: {e}")
-            return False
             return False
     
     def stop_recording(self) -> Dict:
@@ -305,6 +319,14 @@ class DMXPlayer:
         self.frames_read = 0
         self.crc_errors = 0
         self.buffer_underruns = 0
+        
+        # V1.3.0: License manager for universe validation
+        self._license_manager = None
+        try:
+            from src.utils.license import get_license_manager
+            self._license_manager = get_license_manager()
+        except Exception as e:
+            logger.warning(f"License check unavailable: {e}")
     
     def open(self) -> bool:
         """Open recording file and read header"""
@@ -431,6 +453,15 @@ class DMXPlayer:
         
         try:
             frame = self.frame_buffer.get(timeout=timeout)
+            
+            # V1.3.0: Validate universe against license limit
+            if self._license_manager:
+                is_valid, _ = self._license_manager.validate_universe(frame.universe)
+                if not is_valid:
+                    # Skip frames for universes beyond license limit
+                    logger.debug(f"Skipping frame for Universe {frame.universe} (license limit)")
+                    return self.get_next_frame(timeout)  # Get next frame recursively
+            
             self.current_frame_index += 1
             
             # Time drift correction every second
