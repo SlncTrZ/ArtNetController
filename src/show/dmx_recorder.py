@@ -6,7 +6,7 @@ Binary Format Structure:
 ========================
 HEADER (Fixed size):
 - Magic bytes: 'DMXR' (4 bytes)
-- Version: uint8 (1 byte) - Currently version 1
+- Version: uint8 (1 byte) - Currently version 2 (V2.0 with CRC + Monotonic Time)
 - FPS: float32 (4 bytes) - Frames per second
 - Universe count: uint16 (2 bytes) - Number of universes
 - Frame count: uint32 (4 bytes) - Total number of frames

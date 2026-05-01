@@ -13,6 +13,11 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# ── Constants (không dùng magic numbers) ──
+ARTNET_PORT = 6454              # Art-Net standard UDP port
+RECV_BUFFER_SIZE = 4096         # UDP receive buffer size
+NODE_TIMEOUT_SEC = 300.0        # Node discovery timeout (seconds)
+
 @dataclass
 class ArtNetNode:
     """Thông tin một node Art-Net"""
@@ -315,7 +320,7 @@ class ArtNetController:
         if hasattr(self, 'loopback_socket') and self.loopback_socket:
             try:
                 self.loopback_socket.close()
-            except:
+            except OSError:
                 pass
             
         if self.receive_thread:
@@ -489,7 +494,7 @@ class ArtNetController:
         
         while self.running:
             try:
-                data, addr = self.socket.recvfrom(4096)
+                data, addr = self.socket.recvfrom(RECV_BUFFER_SIZE)
                 logger.debug(f"RX from {addr[0]}:{addr[1]}, size: {len(data)} bytes")
                 self._handle_packet(data, addr)
                 
@@ -740,7 +745,7 @@ class ArtNetController:
             short_name_bytes = payload[SHORTNAME_OFFSET:SHORTNAME_OFFSET+18]
             try:
                 short_name = short_name_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
-            except:
+            except (UnicodeDecodeError, ValueError):
                 short_name = f"Node_{ip_address.split('.')[-1]}"
             
             if not short_name:
@@ -751,7 +756,7 @@ class ArtNetController:
             long_name_bytes = payload[LONGNAME_OFFSET:LONGNAME_OFFSET+64]
             try:
                 long_name = long_name_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore').strip()
-            except:
+            except (UnicodeDecodeError, ValueError):
                 long_name = f"Art-Net Node at {ip_address}"
             
             if not long_name:
@@ -948,7 +953,7 @@ class ArtNetController:
             ip_addr = s.getsockname()[0]
             s.close()
             ip_bytes = [int(x) for x in ip_addr.split('.')]
-        except:
+        except (OSError, socket.error):
             ip_bytes = [127, 0, 0, 1]  # Fallback localhost
         
         packet.extend(bytes(ip_bytes))
@@ -1085,7 +1090,7 @@ class ArtNetController:
         return bytes(packet)
 
     
-    def cleanup_old_nodes(self, timeout: float = 300.0):
+    def cleanup_old_nodes(self, timeout: float = NODE_TIMEOUT_SEC):
         """Cleanup các nodes cũ không còn active"""
         current_time = time.time()
         

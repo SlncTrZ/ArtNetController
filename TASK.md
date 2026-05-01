@@ -1,6 +1,6 @@
 # TASK.md — DMX Master LTS Development Backlog
 
-> Cập nhật: 2026-04-16  
+> Cập nhật: 2026-05-01  
 > Version hiện tại: 1.3.0  
 > Quy ước trạng thái: `[ ]` chưa làm · `[~]` đang làm · `[x]` hoàn thành
 
@@ -66,13 +66,14 @@ Last Updated: YYYY-MM-DD
 
 ### 2.2 Magic numbers cần đặt tên hằng số
 
-- `[ ]` `controller.py`: `6454` (ArtNet port), `4096` (recv buffer), `300.0` (node timeout) → extract thành constant
-- `[ ]` `dmx_recorder.py`: `522` / `524` (frame size) — đã có `FRAME_SIZE` nhưng cần kiểm tra nhất quán
+- `[x]` `controller.py`: `6454` (ArtNet port), `4096` (recv buffer), `300.0` (node timeout) → extract thành constant
+- `[x]` `dmx_recorder.py`: `522` / `524` (frame size) — đã có `FRAME_SIZE`, nhất quán
 
 ### 2.3 Lỗi tiềm ẩn cần review
 
-- `[ ]` `controller.py:_create_poll_reply()` — tạo socket mới mỗi lần gọi (dòng 946-950) → dùng `self.bind_ip` thay thế
-- `[ ]` `controller.py:_handle_poll_reply()` — bare `except:` tại dòng 744, 755 → thu hẹp exception type
+- `[ ]` `controller.py:_create_poll_reply()` — tạo socket mới mỗi lần gọi → dùng `self.bind_ip` thay thế
+- `[x]` `controller.py:_handle_poll_reply()` — bare `except:` → đã sửa thành `(UnicodeDecodeError, ValueError)`
+- `[x]` `controller.py:_create_poll_reply()` — bare `except:` → đã sửa thành `(OSError, socket.error)`
 - `[ ]` `webserver/server.py` — kiểm tra CSRF protection cho các route upload
 - `[ ]` `system/update_manager.py` — kiểm tra certificate validation khi fetch update URL
 
@@ -89,7 +90,7 @@ Last Updated: YYYY-MM-DD
 | Module | Test file | Coverage |
 |---|---|---|
 | `src/artnet/controller.py` | Không có | `[ ]` Cần viết |
-| `src/show/dmx_recorder.py` | Không có | `[ ]` Cần viết |
+| `src/show/dmx_recorder.py` | `tests/test_dmx_recorder.py` | `[x]` 28 tests passed |
 | `src/utils/license.py` | `tests/test_license_tiers.py` | `[~]` Có nhưng cần expand |
 | `src/system/config_manager.py` | `tests/test_basic.py` | `[~]` Cơ bản |
 | `src/serial/` | Không có | `[ ]` Cần viết (mock serial port) |
@@ -97,7 +98,7 @@ Last Updated: YYYY-MM-DD
 ### 3.2 Test cases cần thêm
 
 - `[ ]` `test_artnet_controller.py` — Unit test: packet pack/unpack, universe validation, license limit enforcement
-- `[ ]` `test_dmx_recorder.py` — Unit test: binary format read/write, CRC16 validation, frame integrity
+- `[x]` `test_dmx_recorder.py` — Unit test: binary format read/write, CRC16 validation, frame integrity (28 tests)
 - `[ ]` `test_config_manager.py` — Unit test: config migration, default values, validation
 - `[ ]` `test_network_utils.py` — Unit test: IP detection, broadcast address calculation
 - `[ ]` `test_serial_controller.py` — Integration test với mock serial (không cần hardware)
@@ -130,8 +131,8 @@ Last Updated: YYYY-MM-DD
 
 ## 6. SECURITY
 
-- `[ ]` Kiểm tra `tools/rsa_keys/private_key.pem` không bị commit lên git remote (nguy cơ cao)
-- `[ ]` Xác nhận `config/license.lic` trong `.gitignore`
+- `[x]` Kiểm tra `tools/rsa_keys/private_key.pem` không bị commit lên git remote — OK, .gitignore đầy đủ
+- `[x]` Xác nhận `config/license.lic` trong `.gitignore` — OK
 - `[ ]` Review `webserver/server.py`: file upload path traversal prevention (kiểm tra `secure_filename`)
 - `[ ]` `license.py`: revocation check URL hardcode hay đọc từ config? — tránh SSRF nếu config bị tamper
 
