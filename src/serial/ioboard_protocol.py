@@ -31,7 +31,7 @@ class DMXPacket:
     HEADER_BYTE_1 = 0xAA
     HEADER_BYTE_2 = 0x55
     DMX_CHANNELS = 512
-    PACKET_SIZE = 517  # Header(2) + Universe(1) + Length(2) + Data(512) + Checksum(1)
+    PACKET_SIZE = 518  # Header(2) + Universe(1) + Length(2) + Data(512) + Checksum(1)
     
     def __init__(self, universe: int, dmx_data: bytes):
         """

@@ -60,6 +60,11 @@ class PortScanner:
         return PYSERIAL_AVAILABLE
     
     @classmethod
+    def _get_comports(cls) -> list:
+        """Wrapper for serial.tools.list_ports.comports() — easier to mock in tests"""
+        return serial.tools.list_ports.comports()
+
+    @classmethod
     def scan_ports(cls) -> List[IOBoardInfo]:
         """
         Scan all COM ports and detect IOBoards
@@ -75,7 +80,7 @@ class PortScanner:
         
         try:
             # List all available COM ports
-            ports = serial.tools.list_ports.comports()
+            ports = cls._get_comports()
             logger.info(f"Scanning {len(ports)} COM ports for IOBoards...")
             
             for port_info in ports:
