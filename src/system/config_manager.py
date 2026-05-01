@@ -25,6 +25,7 @@ Last Updated: 2026-05-01
 """
 
 import json
+import copy
 import logging
 import shutil
 from pathlib import Path
@@ -321,7 +322,7 @@ class ConfigManager:
             
             else:
                 logger.info("No config file found, creating default config")
-                self.config = DEFAULT_CONFIG.copy()
+                self.config = copy.deepcopy(DEFAULT_CONFIG)
                 self.config["last_updated"] = datetime.now().isoformat()
                 self.save()
                 return True
@@ -329,7 +330,7 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Error loading config: {e}")
             logger.info("Using default config")
-            self.config = DEFAULT_CONFIG.copy()
+            self.config = copy.deepcopy(DEFAULT_CONFIG)
             return False
     
     def save(self) -> bool:
@@ -389,7 +390,7 @@ class ConfigManager:
     
     def _merge_with_defaults(self, config: Dict, defaults: Dict) -> Dict:
         """Merge config với defaults để add missing keys"""
-        result = defaults.copy()
+        result = copy.deepcopy(defaults)
         
         for key, value in config.items():
             if key in result:
@@ -489,7 +490,7 @@ class ConfigManager:
             self.backup("before_reset")
             
             # Reset
-            self.config = DEFAULT_CONFIG.copy()
+            self.config = copy.deepcopy(DEFAULT_CONFIG)
             self.config["last_updated"] = datetime.now().isoformat()
             
             return self.save()
