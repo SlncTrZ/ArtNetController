@@ -60,7 +60,7 @@ Tất cả file thiếu `Topic:` và `Last Updated:` theo chuẩn CLAUDE.md.
 Detailed explanation...
 
 Topic: <artnet|gui|serial|show|system|utils|webserver>
-Last Updated: YYYY-MM-DD
+Last Updated: YYYY-MM-DD  HH:
 """
 ```
 
@@ -92,15 +92,16 @@ Last Updated: YYYY-MM-DD
 | `src/artnet/controller.py` | `tests/test_artnet_controller.py` | `[x]` 33 tests passed |
 | `src/show/dmx_recorder.py` | `tests/test_dmx_recorder.py` | `[x]` 28 tests passed |
 | `src/utils/license.py` | `tests/test_license_tiers.py` | `[~]` Có nhưng cần expand |
-| `src/system/config_manager.py` | `tests/test_basic.py` | `[~]` Cơ bản |
+| `src/system/config_manager.py` | `tests/test_config_manager.py` | `[x]` 56 tests passed |
+| `src/utils/network_utils.py` | `tests/test_network_utils.py` | `[x]` 24 tests passed |
 | `src/serial/` | Không có | `[ ]` Cần viết (mock serial port) |
 
 ### 3.2 Test cases cần thêm
 
 - `[x]` `test_artnet_controller.py` — Unit test: packet pack/unpack, universe validation, controller init (33 tests)
 - `[x]` `test_dmx_recorder.py` — Unit test: binary format read/write, CRC16 validation, frame integrity (28 tests)
-- `[ ]` `test_config_manager.py` — Unit test: config migration, default values, validation
-- `[ ]` `test_network_utils.py` — Unit test: IP detection, broadcast address calculation
+- `[x]` `test_config_manager.py` — Unit test: config migration, default values, validation, backup/restore, license encryption (56 tests)
+- `[x]` `test_network_utils.py` — Unit test: IP validation, adapter detection, primary IP fallback (24 tests)
 - `[ ]` `test_serial_controller.py` — Integration test với mock serial (không cần hardware)
 
 ---
