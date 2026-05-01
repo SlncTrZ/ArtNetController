@@ -1,5 +1,8 @@
 """
 DMX View Tab - Tab hiển thị trạng thái DMX
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging

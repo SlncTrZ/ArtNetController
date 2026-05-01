@@ -1,6 +1,9 @@
 """
 Timeline Editor Widget - Advanced timeline editing for DMX recordings and music
 Similar to video editing software timeline with zoom, trim, cut, and drag operations
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging

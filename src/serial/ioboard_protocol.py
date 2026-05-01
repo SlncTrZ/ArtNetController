@@ -12,6 +12,9 @@ Packet Format:
 Total: 517 bytes per packet
 Baudrate: 500000 (configurable)
 Transmission time: ~10ms @ 500000 baud
+
+Topic: serial
+Last Updated: 2026-05-01
 """
 
 import struct

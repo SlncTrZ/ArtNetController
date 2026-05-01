@@ -14,6 +14,9 @@ Supported Platforms:
 - Windows: .exe installer with silent install
 - Raspberry Pi: .deb package or .tar.gz
 - Linux: .tar.gz or AppImage
+
+Topic: system
+Last Updated: 2026-05-01
 """
 
 import json

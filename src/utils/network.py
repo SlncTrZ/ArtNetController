@@ -1,5 +1,8 @@
 """
 Network utilities for Art-Net Controller
+
+Topic: utils
+Last Updated: 2026-05-01
 """
 
 import socket

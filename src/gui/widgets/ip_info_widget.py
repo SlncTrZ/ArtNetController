@@ -1,6 +1,9 @@
 """
 IP Information Widget
 Hiển thị thông tin IP và hướng dẫn kết nối Art-Net cho external devices
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging

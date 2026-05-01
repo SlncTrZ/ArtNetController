@@ -1,6 +1,9 @@
 """
 Main Window cho DMX Master
 PyQt6 GUI với 5 tabs chính và tích hợp DMX Master
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import sys

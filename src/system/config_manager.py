@@ -19,6 +19,9 @@ Supported Settings:
 - UI: Theme, language, window size
 - License: Encrypted license key
 - Paths: Shows, backups, logs
+
+Topic: system
+Last Updated: 2026-05-01
 """
 
 import json

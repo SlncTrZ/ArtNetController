@@ -1,5 +1,8 @@
 """
 Hardware Manager Tab - Tab quản lý thiết bị Art-Net
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging

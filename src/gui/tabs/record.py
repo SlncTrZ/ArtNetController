@@ -2,6 +2,9 @@
 Record Tab - Tab ghi và chỉnh sửa DMX (chỉ admin)
 V2.0: Added Timecode Sync Recording support
 V2.1: Added Timeline Editor for advanced trimming and editing
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging

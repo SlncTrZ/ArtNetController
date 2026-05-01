@@ -26,6 +26,9 @@ Security Features:
     âœ… AES-256-GCM encryption (can't edit license file)
     âœ… Cython compilation (can't read source code)
     âœ… Online revocation (can remotely disable)
+
+Topic: utils
+Last Updated: 2026-05-01
 """
 
 import sys

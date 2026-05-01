@@ -22,6 +22,9 @@ Total per Frame: 522 bytes
 Example:
 - 10 minutes recording at 40 FPS, 1 universe = 10 * 60 * 40 * 522 = ~12.5 MB
 - vs JSON format would be ~100+ MB
+
+Topic: show
+Last Updated: 2026-05-01
 """
 
 import struct

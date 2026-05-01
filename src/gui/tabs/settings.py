@@ -1,5 +1,8 @@
 """
 Settings Tab - Tab cấu hình hệ thống
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging

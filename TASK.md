@@ -13,28 +13,28 @@ Tất cả file thiếu `Topic:` và `Last Updated:` theo chuẩn CLAUDE.md.
 
 | File | Trạng thái |
 |---|---|
-| `src/artnet/controller.py` | `[ ]` |
-| `src/gui/main_window.py` | `[ ]` |
-| `src/gui/tabs/dmx_view.py` | `[ ]` |
-| `src/gui/tabs/hardware_manager.py` | `[ ]` |
-| `src/gui/tabs/record.py` | `[ ]` |
-| `src/gui/tabs/settings.py` | `[ ]` |
-| `src/gui/tabs/show_manager.py` | `[ ]` |
-| `src/gui/widgets/timeline_editor.py` | `[ ]` |
-| `src/gui/widgets/ip_info_widget.py` | `[ ]` |
-| `src/serial/serial_controller.py` | `[ ]` |
-| `src/serial/ioboard_protocol.py` | `[ ]` |
-| `src/serial/port_scanner.py` | `[ ]` |
-| `src/show/manager.py` | `[ ]` |
-| `src/show/dmx_recorder.py` | `[ ]` |
-| `src/system/config_manager.py` | `[ ]` |
-| `src/system/timecode_receiver.py` | `[ ]` |
-| `src/system/crash_reporter.py` | `[ ]` |
-| `src/system/update_manager.py` | `[ ]` |
-| `src/utils/license.py` | `[ ]` |
-| `src/utils/network.py` | `[ ]` |
-| `src/utils/network_utils.py` | `[ ]` |
-| `src/webserver/server.py` | `[ ]` |
+| `src/artnet/controller.py` | `[x]` |
+| `src/gui/main_window.py` | `[x]` |
+| `src/gui/tabs/dmx_view.py` | `[x]` |
+| `src/gui/tabs/hardware_manager.py` | `[x]` |
+| `src/gui/tabs/record.py` | `[x]` |
+| `src/gui/tabs/settings.py` | `[x]` |
+| `src/gui/tabs/show_manager.py` | `[x]` |
+| `src/gui/widgets/timeline_editor.py` | `[x]` |
+| `src/gui/widgets/ip_info_widget.py` | `[x]` |
+| `src/serial/serial_controller.py` | `[x]` |
+| `src/serial/ioboard_protocol.py` | `[x]` |
+| `src/serial/port_scanner.py` | `[x]` |
+| `src/show/manager.py` | `[x]` |
+| `src/show/dmx_recorder.py` | `[x]` |
+| `src/system/config_manager.py` | `[x]` |
+| `src/system/timecode_receiver.py` | `[x]` |
+| `src/system/crash_reporter.py` | `[x]` |
+| `src/system/update_manager.py` | `[x]` |
+| `src/utils/license.py` | `[x]` |
+| `src/utils/network.py` | `[x]` |
+| `src/utils/network_utils.py` | `[x]` |
+| `src/webserver/server.py` | `[x]` |
 
 ### 1.2 Tài liệu kiến trúc (Còn thiếu)
 
@@ -89,7 +89,7 @@ Last Updated: YYYY-MM-DD
 
 | Module | Test file | Coverage |
 |---|---|---|
-| `src/artnet/controller.py` | Không có | `[ ]` Cần viết |
+| `src/artnet/controller.py` | `tests/test_artnet_controller.py` | `[x]` 33 tests passed |
 | `src/show/dmx_recorder.py` | `tests/test_dmx_recorder.py` | `[x]` 28 tests passed |
 | `src/utils/license.py` | `tests/test_license_tiers.py` | `[~]` Có nhưng cần expand |
 | `src/system/config_manager.py` | `tests/test_basic.py` | `[~]` Cơ bản |
@@ -97,7 +97,7 @@ Last Updated: YYYY-MM-DD
 
 ### 3.2 Test cases cần thêm
 
-- `[ ]` `test_artnet_controller.py` — Unit test: packet pack/unpack, universe validation, license limit enforcement
+- `[x]` `test_artnet_controller.py` — Unit test: packet pack/unpack, universe validation, controller init (33 tests)
 - `[x]` `test_dmx_recorder.py` — Unit test: binary format read/write, CRC16 validation, frame integrity (28 tests)
 - `[ ]` `test_config_manager.py` — Unit test: config migration, default values, validation
 - `[ ]` `test_network_utils.py` — Unit test: IP detection, broadcast address calculation

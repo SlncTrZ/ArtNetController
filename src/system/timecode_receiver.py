@@ -3,6 +3,9 @@ Timecode Receiver System - V2.0 Professional Feature
 Supports Net-Timecode and Art-Net 4 Timecode
 
 Compatible with Depence and other professional lighting software.
+
+Topic: system
+Last Updated: 2026-05-01
 """
 
 import logging

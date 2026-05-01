@@ -1,6 +1,9 @@
 """
 Art-Net Protocol Implementation
 Xử lý giao thức Art-Net theo specification Art-Net 4
+
+Topic: artnet
+Last Updated: 2026-05-01
 """
 
 import struct

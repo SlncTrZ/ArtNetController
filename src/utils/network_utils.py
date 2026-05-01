@@ -1,5 +1,8 @@
 """
 Network utilities - Get available network adapters
+
+Topic: utils
+Last Updated: 2026-05-01
 """
 
 import socket

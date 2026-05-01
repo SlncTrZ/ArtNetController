@@ -50,13 +50,12 @@ def test_license_manager():
             assert is_valid, "Universe 4 should be valid in LICENSED version"
         
         print(f"\n✅ License Manager: ALL TESTS PASSED ({tier} - {max_uni} universes)")
-        return True
         
     except Exception as e:
         print(f"❌ License Manager: TEST FAILED - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def test_artnet_controller():
@@ -93,13 +92,12 @@ def test_artnet_controller():
         controller.stop()
         
         print(f"\n✅ Art-Net Controller: ALL TESTS PASSED")
-        return True
         
     except Exception as e:
         print(f"❌ Art-Net Controller: TEST FAILED - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def test_serial_controller():
@@ -126,16 +124,14 @@ def test_serial_controller():
         print(f"✅ SerialController.send_dmx() → Has license validation")
         
         print(f"\n✅ Serial Controller: ALL TESTS PASSED")
-        return True
         
     except ImportError as e:
         print(f"⚠️  Serial Controller: SKIPPED (pyserial not available)")
-        return True
     except Exception as e:
         print(f"❌ Serial Controller: TEST FAILED - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def test_dmx_recorder():
@@ -202,13 +198,12 @@ def test_dmx_recorder():
                 os.unlink(tmp_path)
         
         print(f"\n✅ DMX Recorder/Player: ALL TESTS PASSED")
-        return True
         
     except Exception as e:
         print(f"❌ DMX Recorder/Player: TEST FAILED - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def main():
@@ -217,12 +212,20 @@ def main():
     print("DMX Master v1.3.0 - License Tiers Test Suite")
     print("="*60)
     
-    results = {
-        "License Manager": test_license_manager(),
-        "Art-Net Controller": test_artnet_controller(),
-        "Serial Controller": test_serial_controller(),
-        "DMX Recorder/Player": test_dmx_recorder(),
-    }
+    tests = [
+        ("License Manager", test_license_manager),
+        ("Art-Net Controller", test_artnet_controller),
+        ("Serial Controller", test_serial_controller),
+        ("DMX Recorder/Player", test_dmx_recorder),
+    ]
+    
+    results = {}
+    for name, test_func in tests:
+        try:
+            test_func()
+            results[name] = True
+        except Exception:
+            results[name] = False
     
     # Summary
     print("\n" + "="*60)

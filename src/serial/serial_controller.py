@@ -7,6 +7,9 @@ Auto-Mapping Logic:
 - Board #2 → Universe 2, 3
 - Board #3 → Universe 4, 5
 - Board #N → Universe [(N-1)*2, (N-1)*2+1]
+
+Topic: serial
+Last Updated: 2026-05-01
 """
 
 import logging

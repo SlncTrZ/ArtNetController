@@ -1,6 +1,9 @@
 """
 COM Port Scanner for IOBoard Detection
 Auto-detect DMX Master IO boards and extract board numbers
+
+Topic: serial
+Last Updated: 2026-05-01
 """
 
 import logging

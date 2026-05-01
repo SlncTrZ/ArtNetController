@@ -1,6 +1,9 @@
 """
 Show Management System
 Quản lý show với XML/JSON format và playlist nhạc
+
+Topic: show
+Last Updated: 2026-05-01
 """
 
 import json

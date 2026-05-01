@@ -17,6 +17,9 @@ Privacy:
 - No personal data collected
 - User can disable reporting
 - Logs stored locally
+
+Topic: system
+Last Updated: 2026-05-01
 """
 
 import sys

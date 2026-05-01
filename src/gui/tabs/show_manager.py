@@ -1,5 +1,8 @@
 """
 Show Manager Tab - Manage and play DMX shows with playlist controls
+
+Topic: gui
+Last Updated: 2026-05-01
 """
 
 import logging
