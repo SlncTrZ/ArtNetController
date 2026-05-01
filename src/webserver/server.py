@@ -145,8 +145,11 @@ class MP3UploadServer:
         def download_file(show_name, filename):
             """Download file from show folder"""
             try:
+                safe_filename = secure_filename(filename)
+                if not safe_filename:
+                    return jsonify({'error': 'Invalid filename'}), 400
                 music_folder = self.show_manager.get_show_music_folder(show_name)
-                return send_from_directory(music_folder, filename)
+                return send_from_directory(music_folder, safe_filename)
             except Exception as e:
                 logger.error(f"Download error: {e}")
                 return jsonify({'error': str(e)}), 404

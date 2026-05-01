@@ -207,7 +207,7 @@ class ArtNetController:
             # On Windows, binding to 0.0.0.0 only receives broadcast, not unicast
             # Binding to specific IP receives both broadcast and unicast
             bind_ip = self.bind_ip
-            
+
             # Handle "auto" selection or 0.0.0.0 - auto-detect primary interface
             if self.bind_ip == "0.0.0.0" or self.bind_ip == "auto":
                 # Auto-detect primary network interface IP for Windows compatibility
@@ -218,13 +218,16 @@ class ArtNetController:
                     temp_socket.connect(("8.8.8.8", 80))
                     primary_ip = temp_socket.getsockname()[0]
                     temp_socket.close()
-                    
+
                     # Also listen on localhost for same-machine communication
                     bind_ip = primary_ip
                     logger.info(f"Auto-detected primary interface: {primary_ip}")
                 except Exception as e:
                     logger.warning(f"Could not auto-detect primary interface: {e}, falling back to 127.0.0.1")
                     bind_ip = "127.0.0.1"
+
+            # Cache resolved IP for reuse in PollReply (avoid creating socket per call)
+            self._current_ip = bind_ip
             
             self.socket.settimeout(1.0)  # 1 second timeout for debugging
             
@@ -947,17 +950,12 @@ class ArtNetController:
         # OpCode: 0x2100 (ArtPollReply) - Little Endian
         packet.extend(struct.pack('<H', ArtNetPacket.ARTNET_POLL_REPLY))
         
-        # IP Address (4 bytes) - lấy IP của interface
-        try:
-            # Lấy IP hiện tại của máy
-            import socket as sock
-            s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip_addr = s.getsockname()[0]
-            s.close()
+        # IP Address (4 bytes) - dùng cached IP từ start() (tránh tạo socket mỗi lần gọi)
+        ip_addr = getattr(self, '_current_ip', None) or self.bind_ip
+        if ip_addr in ("0.0.0.0", "auto", None):
+            ip_bytes = [127, 0, 0, 1]
+        else:
             ip_bytes = [int(x) for x in ip_addr.split('.')]
-        except (OSError, socket.error):
-            ip_bytes = [127, 0, 0, 1]  # Fallback localhost
         
         packet.extend(bytes(ip_bytes))
         

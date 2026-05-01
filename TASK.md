@@ -60,7 +60,7 @@ Tất cả file thiếu `Topic:` và `Last Updated:` theo chuẩn CLAUDE.md.
 Detailed explanation...
 
 Topic: <artnet|gui|serial|show|system|utils|webserver>
-Last Updated: YYYY-MM-DD  HH:
+Last Updated: YYYY-MM-DD  HH:MM
 """
 ```
 
@@ -71,7 +71,7 @@ Last Updated: YYYY-MM-DD  HH:
 
 ### 2.3 Lỗi tiềm ẩn cần review
 
-- `[ ]` `controller.py:_create_poll_reply()` — tạo socket mới mỗi lần gọi → dùng `self.bind_ip` thay thế
+- `[x]` `controller.py:_create_poll_reply()` — tạo socket mới mỗi lần gọi → dùng cached `self._current_ip` thay thế (fixed 2026-05-02)
 - `[x]` `controller.py:_handle_poll_reply()` — bare `except:` → đã sửa thành `(UnicodeDecodeError, ValueError)`
 - `[x]` `controller.py:_create_poll_reply()` — bare `except:` → đã sửa thành `(OSError, socket.error)`
 - `[ ]` `webserver/server.py` — kiểm tra CSRF protection cho các route upload
@@ -134,7 +134,7 @@ Last Updated: YYYY-MM-DD  HH:
 
 - `[x]` Kiểm tra `tools/rsa_keys/private_key.pem` không bị commit lên git remote — OK, .gitignore đầy đủ
 - `[x]` Xác nhận `config/license.lic` trong `.gitignore` — OK
-- `[ ]` Review `webserver/server.py`: file upload path traversal prevention (kiểm tra `secure_filename`)
+- `[x]` Review `webserver/server.py`: file upload path traversal prevention — `secure_filename()` áp dụng cho upload/delete ✅, thêm cho download route (fixed 2026-05-02)
 - `[ ]` `license.py`: revocation check URL hardcode hay đọc từ config? — tránh SSRF nếu config bị tamper
 
 ---
