@@ -104,6 +104,8 @@ shows/
 # Temp files
 *.tmp
 temp/
+.pytest_cache/
+
 # Build outputs
 *.zip
 *.rar

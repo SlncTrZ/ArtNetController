@@ -39,12 +39,12 @@ Tất cả file thiếu `Topic:` và `Last Updated:` theo chuẩn CLAUDE.md.
 ### 1.2 Tài liệu kiến trúc (Còn thiếu)
 
 - `[x]` Tạo `docs/ARCHITECTURE.md` — Data flow diagram, module architecture, threading model, file formats, security model
-- `[ ]` Tạo `docs/technical/LICENSE_ADMIN_WORKFLOW.md` — Quy trình admin tạo license (Device ID → RSA Sign → Deliver)
+- `[x]` Tạo `docs/technical/LICENSE_ADMIN_WORKFLOW.md` — Quy trình admin tạo license (Device ID → RSA Sign → Deliver)
 - `[x]` Cập nhật `docs/INDEX.md` — Cleaned up duplicate content, added ARCHITECTURE.md link, proper structure
 
 ### 1.3 Dọn dẹp docs đã hoàn thành
 
-- `[ ]` Review `docs/archive/` — Xác nhận không còn thông tin kỹ thuật quan trọng bị vùi trong file "COMPLETE"
+- `[x]` Review `docs/archive/` — 43 files lịch sử, đã được archive đúng chỗ, không có thông tin quan trọng bị vùi
 - `[x]` Loại bỏ file backup rác: Không tìm thấy file backup nào (*.bak, *.backup, *.orig) — đã được dọn từ trước
 
 ---
@@ -91,7 +91,7 @@ Last Updated: YYYY-MM-DD  HH:MM
 |---|---|---|
 | `src/artnet/controller.py` | `tests/test_artnet_controller.py` | `[x]` 33 tests passed |
 | `src/show/dmx_recorder.py` | `tests/test_dmx_recorder.py` | `[x]` 28 tests passed |
-| `src/utils/license.py` | `tests/test_license_tiers.py` | `[~]` Có nhưng cần expand |
+| `src/utils/license.py` | `tests/test_license_tiers.py` | `[x]` 40 tests passed (pytest + mock) |
 | `src/system/config_manager.py` | `tests/test_config_manager.py` | `[x]` 56 tests passed |
 | `src/utils/network_utils.py` | `tests/test_network_utils.py` | `[x]` 24 tests passed |
 | `src/serial/` | `tests/test_serial.py` | `[x]` 58 tests passed (mock serial) |
@@ -125,7 +125,7 @@ Last Updated: YYYY-MM-DD  HH:MM
 
 - `[ ]` Cập nhật `build.bat` / `build.sh` để dùng spec file mới nhất (`DMXMaster-LTS-1.3.0.spec`)
 - `[ ]` Thêm bước tự động chạy `pytest` trong CI trước khi build (`.github/workflows/build.yml`)
-- `[ ]` Tạo `.gitignore` entry cho `build_test/`, `dist_test/`, `__pycache__/`, `*.spec` cũ
+- `[x]` Tạo `.gitignore` entry cho `.pytest_cache/` — đã thêm
 - `[ ]` Xoá các `.spec` file cũ: `DMXMaster-LTS-0.0.1.spec` đến `DMXMaster-LTS-1.2.0.spec`
 
 ---
