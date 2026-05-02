@@ -1,9 +1,12 @@
 """
-Flask Web Server cho MP3 Upload
-Webserver để upload MP3 files và tự động tổ chức vào show folders
+Flask Web Server cho MP3 Upload + REST API.
 
+Webserver để upload MP3 files, quản lý shows, và cung cấp REST API
+cho AI_DMX_Autopilot trao đổi data (Phase 2 SYNC_PLAN).
+
+Wing: code_chronicles
 Topic: webserver
-Last Updated: 2026-05-01
+Last Updated: 2026-05-02
 """
 
 import logging
@@ -37,6 +40,15 @@ class MP3UploadServer:
         self.allowed_extensions = {'mp3', 'wav', 'flac', 'm4a', 'ogg'}
         
         self.setup_routes()
+
+        # Register API Blueprint (Phase 2 — SYNC_PLAN)
+        from webserver.api import register_api_blueprint
+        register_api_blueprint(
+            self.app,
+            show_manager=show_manager,
+            config_manager=config_manager,
+        )
+
         self.server_thread = None
         self.is_running = False
 
@@ -107,16 +119,8 @@ class MP3UploadServer:
                 logger.error(f"Upload error: {e}")
                 return jsonify({'error': str(e)}), 500
         
-        @self.app.route('/api/shows')
-        def get_shows():
-            """Get list of available shows"""
-            try:
-                shows = self.show_manager.get_show_list()
-                show_names = [show['name'] for show in shows]
-                return jsonify({'shows': show_names})
-            except Exception as e:
-                logger.error(f"Error getting shows: {e}")
-                return jsonify({'error': str(e)}), 500
+        # NOTE: /api/shows now handled by api.py Blueprint (Phase 2)
+        # Frontend compat: blueprint returns full metadata, JS extracts .name
         
         @self.app.route('/api/files/<show_name>')
         def get_show_files(show_name):
@@ -502,15 +506,16 @@ class MP3UploadServer:
     <script>
         let currentShow = 'default';
         
-        // Load shows
+        // Load shows (API returns full metadata, extract name)
         fetch('/api/shows')
             .then(response => response.json())
             .then(data => {
                 const select = document.getElementById('showSelect');
                 data.shows.forEach(show => {
+                    const name = typeof show === 'object' ? show.name : show;
                     const option = document.createElement('option');
-                    option.value = show;
-                    option.textContent = show;
+                    option.value = name;
+                    option.textContent = name;
                     select.appendChild(option);
                 });
             })

@@ -3,7 +3,7 @@
 > **Mục tiêu**: Thiết lập đồng bộ hoàn chỉnh giữa 2 dự án DMX
 > **Ngày tạo**: 2026-05-01 23:06
 > **Last Updated**: 2026-05-02 07:33
-> **Trạng thái**: `[~]` Phase 1 đang triển khai — Phase 1.1→1.6 HOÀN THÀNH
+> **Trạng thái**: `[✅]` Phase 1 HOÀN THÀNH — Tất cả 3.1.1→1.7 done
 > **Thời gian dự kiến**: 4-6 tuần
 
 ---
@@ -432,7 +432,7 @@ Receive: {"universe": 0, "data": [128, 200, 0, ...], "timestamp": 1234.567}
 - [x] 3.1.4 Module common/ (validation, CRC) ✅ 2026-05-02
 - [x] 3.1.5 Unit tests cho shared lib — 34/34 pass ✅ 2026-05-02
 - [x] 3.1.6 Integrate vào ArtNetController — 28/28 tests pass ✅ 2026-05-02
-- [ ] 3.1.7 Integrate vào AI_DMX_Autopilot
+- [x] 3.1.7 Integrate vào AI_DMX_Autopilot — legacy_show_importer dùng DMXRecReader ✅ 2026-05-02
 
 ### Phase 2: API Server
 - [ ] 3.2.1 API Server setup (Flask/FastAPI)
