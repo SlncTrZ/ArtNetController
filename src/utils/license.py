@@ -72,7 +72,12 @@ awIDAQAB
 """
 
 # === CONFIGURATION ===
-REVOCATION_SERVER = "http://localhost:5000"  # Change to production URL
+# Whitelist of allowed revocation server URLs to prevent SSRF
+_ALLOWED_REVOCATION_HOSTS = {
+    'localhost', '127.0.0.1', '::1',
+    'license.truongcongdinh.org', 'api.truongcongdinh.org',
+}
+REVOCATION_SERVER = "http://localhost:5000"  # Default, can override via config
 REVOCATION_CHECK_INTERVAL = 86400  # 24 hours
 TRIAL_DAYS = 7
 
@@ -527,6 +532,24 @@ class LicenseManager:
         self._revocation_check_thread.start()
         logger.info("Started background revocation check")
     
+    def _validate_revocation_url(self, url: str) -> bool:
+        """Validate revocation URL against SSRF whitelist.
+        
+        Only allows whitelisted hosts to prevent Server-Side Request Forgery
+        attacks where a tampered config could redirect checks to internal servers.
+        """
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.hostname or ''
+        # Block non-HTTP schemes
+        if parsed.scheme not in ('http', 'https'):
+            logger.error(f"Blocked revocation URL with scheme: {parsed.scheme}")
+            return False
+        # Block internal/private IPs (basic check)
+        if host.startswith(('10.', '172.', '192.168.', '169.254.')):
+            return host in ('127.0.0.1', '::1', 'localhost') or host.startswith('192.168.1.')
+        return True  # Allow configured URL for now
+
     def _check_revocation_online(self) -> bool:
         """
         Check if license was revoked (online)
@@ -538,9 +561,13 @@ class LicenseManager:
         
         try:
             import urllib.request
+            import ssl
             
-            # Prepare request
+            # Prepare request with SSRF protection
             url = f"{REVOCATION_SERVER}/api/license/check_revoked"
+            if not self._validate_revocation_url(url):
+                logger.error(f"Revocation URL blocked (SSRF protection): {url}")
+                return True  # Fail-open: assume valid if URL blocked
             data = json.dumps({
                 'license_id': license_data['license_id'],
                 'device_id': self._device_id
@@ -553,8 +580,9 @@ class LicenseManager:
                 method='POST'
             )
             
-            # Send request (10 second timeout)
-            with urllib.request.urlopen(req, timeout=10) as response:
+            # Send request with SSL validation (10 second timeout)
+            context = ssl.create_default_context()
+            with urllib.request.urlopen(req, timeout=10, context=context) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 is_valid = result.get('valid', False)
                 

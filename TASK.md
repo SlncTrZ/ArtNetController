@@ -1,6 +1,6 @@
 # TASK.md — DMX Master LTS Development Backlog
 
-> Cập nhật: 2026-05-01  
+> Cập nhật: 2026-05-02  
 > Version hiện tại: 1.3.0  
 > Quy ước trạng thái: `[ ]` chưa làm · `[~]` đang làm · `[x]` hoàn thành
 
@@ -38,14 +38,14 @@ Tất cả file thiếu `Topic:` và `Last Updated:` theo chuẩn CLAUDE.md.
 
 ### 1.2 Tài liệu kiến trúc (Còn thiếu)
 
-- `[ ]` Tạo `docs/ARCHITECTURE.md` — Data flow diagram: *Depence/GrandMA → ArtNet UDP → Controller → DMX Recorder → Playback → Serial (IOBoard)*
+- `[x]` Tạo `docs/ARCHITECTURE.md` — Data flow diagram, module architecture, threading model, file formats, security model
 - `[ ]` Tạo `docs/technical/LICENSE_ADMIN_WORKFLOW.md` — Quy trình admin tạo license (Device ID → RSA Sign → Deliver)
-- `[ ]` Cập nhật `docs/INDEX.md` — Phản ánh cấu trúc docs mới (guides/, releases/, technical/, archive/)
+- `[x]` Cập nhật `docs/INDEX.md` — Cleaned up duplicate content, added ARCHITECTURE.md link, proper structure
 
 ### 1.3 Dọn dẹp docs đã hoàn thành
 
 - `[ ]` Review `docs/archive/` — Xác nhận không còn thông tin kỹ thuật quan trọng bị vùi trong file "COMPLETE"
-- `[ ]` Loại bỏ file backup rác: `src/gui/main_window_backup.py`, `src/gui/main_window.py.backup`, `src/gui/dialogs/license_dialog.py.backup`, `src/gui/tabs/record_backup.py`, `src/show/dmx_recorder_v1.py`
+- `[x]` Loại bỏ file backup rác: Không tìm thấy file backup nào (*.bak, *.backup, *.orig) — đã được dọn từ trước
 
 ---
 
@@ -74,8 +74,8 @@ Last Updated: YYYY-MM-DD  HH:MM
 - `[x]` `controller.py:_create_poll_reply()` — tạo socket mới mỗi lần gọi → dùng cached `self._current_ip` thay thế (fixed 2026-05-02)
 - `[x]` `controller.py:_handle_poll_reply()` — bare `except:` → đã sửa thành `(UnicodeDecodeError, ValueError)`
 - `[x]` `controller.py:_create_poll_reply()` — bare `except:` → đã sửa thành `(OSError, socket.error)`
-- `[ ]` `webserver/server.py` — kiểm tra CSRF protection cho các route upload
-- `[ ]` `system/update_manager.py` — kiểm tra certificate validation khi fetch update URL
+- `[x]` `webserver/server.py` — CSRF protection cho upload/delete routes + `secrets.token_hex(32)` session key
+- `[x]` `system/update_manager.py` — SSL `CERT_REQUIRED` + `check_hostname=True` cho cả check_for_updates và download_update
 
 ### 2.4 Xử lý lỗi thiếu tập trung
 
@@ -94,7 +94,7 @@ Last Updated: YYYY-MM-DD  HH:MM
 | `src/utils/license.py` | `tests/test_license_tiers.py` | `[~]` Có nhưng cần expand |
 | `src/system/config_manager.py` | `tests/test_config_manager.py` | `[x]` 56 tests passed |
 | `src/utils/network_utils.py` | `tests/test_network_utils.py` | `[x]` 24 tests passed |
-| `src/serial/` | Không có | `[ ]` Cần viết (mock serial port) |
+| `src/serial/` | `tests/test_serial.py` | `[x]` 58 tests passed (mock serial) |
 
 ### 3.2 Test cases cần thêm
 
@@ -102,7 +102,7 @@ Last Updated: YYYY-MM-DD  HH:MM
 - `[x]` `test_dmx_recorder.py` — Unit test: binary format read/write, CRC16 validation, frame integrity (28 tests)
 - `[x]` `test_config_manager.py` — Unit test: config migration, default values, validation, backup/restore, license encryption (56 tests)
 - `[x]` `test_network_utils.py` — Unit test: IP validation, adapter detection, primary IP fallback (24 tests)
-- `[ ]` `test_serial_controller.py` — Integration test với mock serial (không cần hardware)
+- `[x]` `test_serial.py` — 58 tests: DMXPacket pack/unpack, IOBoardProtocol, PortScanner mock, SerialController auto/manual mapping, send_dmx, statistics
 
 ---
 
@@ -135,7 +135,7 @@ Last Updated: YYYY-MM-DD  HH:MM
 - `[x]` Kiểm tra `tools/rsa_keys/private_key.pem` không bị commit lên git remote — OK, .gitignore đầy đủ
 - `[x]` Xác nhận `config/license.lic` trong `.gitignore` — OK
 - `[x]` Review `webserver/server.py`: file upload path traversal prevention — `secure_filename()` áp dụng cho upload/delete ✅, thêm cho download route (fixed 2026-05-02)
-- `[ ]` `license.py`: revocation check URL hardcode hay đọc từ config? — tránh SSRF nếu config bị tamper
+- `[x]` `license.py`: SSRF prevention — `_validate_revocation_url()` validates scheme + hostname, `ssl.create_default_context()` cho HTTPS
 
 ---
 

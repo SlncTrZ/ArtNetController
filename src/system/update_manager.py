@@ -160,8 +160,10 @@ class UpdateManager:
             # Query GitHub API
             url = f"{GITHUB_API_URL}/releases/latest"
             
-            # Create SSL context to avoid certificate errors
+            # Create SSL context with strict certificate validation
             context = ssl.create_default_context()
+            context.verify_mode = ssl.CERT_REQUIRED
+            context.check_hostname = True
             
             # Add User-Agent header (required by GitHub API)
             headers = {
@@ -254,8 +256,10 @@ class UpdateManager:
             logger.info(f"Downloading update: {filename} ({file_size / 1024 / 1024:.2f} MB)")
             logger.info(f"URL: {download_url}")
             
-            # Download with progress
+            # Download with strict SSL certificate validation
             context = ssl.create_default_context()
+            context.verify_mode = ssl.CERT_REQUIRED
+            context.check_hostname = True
             headers = {'User-Agent': f'ArtNetController/{self.current_version}'}
             request = Request(download_url, headers=headers)
             

@@ -11,9 +11,10 @@ Last Updated: 2026-05-02
 
 import logging
 import os
+import secrets
 import threading
 from pathlib import Path
-from flask import Flask, request, render_template_string, jsonify, send_from_directory
+from flask import Flask, request, render_template_string, jsonify, send_from_directory, session
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 import mutagen
@@ -31,6 +32,7 @@ class MP3UploadServer:
         
         self.app = Flask(__name__)
         self.app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB default
+        self.app.secret_key = secrets.token_hex(32)  # CSRF session key
         
         # Configure upload settings
         raw_upload_path = config_manager.get_app_config('webserver.upload_path', 'data/music')
@@ -89,8 +91,13 @@ class MP3UploadServer:
         
         @self.app.route('/upload', methods=['POST'])
         def upload_file():
-            """Handle file upload"""
+            """Handle file upload with CSRF validation"""
             try:
+                # CSRF: Validate token for non-API requests
+                csrf_token = request.form.get('csrf_token', '')
+                if not csrf_token or csrf_token != session.get('csrf_token', ''):
+                    return jsonify({'error': 'CSRF token validation failed'}), 403
+
                 if 'file' not in request.files:
                     return jsonify({'error': 'No file provided'}), 400
                 
@@ -162,6 +169,11 @@ class MP3UploadServer:
         def delete_file(show_name, filename):
             """Delete file from show folder"""
             try:
+                # CSRF: Validate header token
+                csrf_token = request.headers.get('X-CSRF-Token', '')
+                if not csrf_token or csrf_token != session.get('csrf_token', ''):
+                    return jsonify({'error': 'CSRF token validation failed'}), 403
+
                 music_folder = self.show_manager.get_show_music_folder(show_name)
                 file_path = music_folder / secure_filename(filename)
                 
